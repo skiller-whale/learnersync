@@ -1,3 +1,5 @@
+package com.skillerwhale.sync;
+
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.Charset;
@@ -8,6 +10,7 @@ import static java.nio.file.LinkOption.*;
 import java.nio.file.attribute.*;
 import java.io.*;
 import java.util.*;
+import java.util.regex.*;
 import java.util.logging.*;
 import java.util.concurrent.TimeUnit;
 import java.net.http.*;
@@ -50,9 +53,6 @@ public class SkillerWhaleSync {
                 .POST(HttpRequest.BodyPublishers.ofString(data))
                 .build();
 
-
-        Files.write(Paths.get("/tmp/out2"), data.getBytes());
-
         HttpResponse<?> response = client.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() >= 200 && response.statusCode() < 300) {
             return;
@@ -78,11 +78,24 @@ public class SkillerWhaleSync {
     private boolean ping() throws IOException, InterruptedException {
         return postToEndpoint("pings", "");
     }
-
+/*
+    private String getEncodingClue(byte[] data) {
+        if (data.length > 3 && data[0] == 0xef && data[1] == 0xbb && data[2] == 0xbf) {
+            return "UTF-8";
+        }
+        String asciiHeader = new String(data, 0, 1000, "ASCII");
+        Matcher m = Pattern.compile("^[ \t\f]*#.*?coding[:=][ \t]*([-_.a-zA-Z0-9]+)", Pattern.MULTILINE).matcher(asciiHeader);
+        if (m.matches()) {
+            return m.group(1);
+        }
+        return null;
+    }
+*/
     /* Assumptions for a random file read off the disc: 1) it's UTF-8, or 2)
      * we still want to see it, so interpret (badly) as ISO-8859-1.
      */
     public static String bytesToString(byte[] data) {
+        //String encodingClue = getEncodingClue();
         for (String tryCharset : new String[]{"UTF8","ISO-8859-1"}) {
             CharBuffer     out     = CharBuffer.allocate(data.length);
             CharsetDecoder decoder = Charset.forName(tryCharset).newDecoder();
@@ -239,11 +252,14 @@ public class SkillerWhaleSync {
         assert(dir != null);
 
         for (WatchEvent<?> event : key.pollEvents()) {
-            Path child = dir.resolve(event.context().toString());
-            boolean matchExt = Arrays.stream(watchedExts).anyMatch(s -> child.toString().endsWith(s));
-            boolean matchIgnore = Arrays.stream(ignoreDirs).anyMatch(s -> child.toString().contains(s+"/"));
+            Path child = dir.resolve(event.context().toString()).toAbsolutePath();
+            boolean matchExt = Arrays.stream(watchedExts).
+                anyMatch(s -> child.toString().endsWith(s));
+            boolean matchIgnore = Arrays.stream(ignoreDirs).
+                anyMatch(s -> child.toString().contains(s+"/"));
 
-            if (matchExt && !matchIgnore)
+            // additional paranoia
+            if (Files.isRegularFile(child, LinkOption.NOFOLLOW_LINKS) && child.startsWith(base) && matchExt && !matchIgnore)
                 processEvent(event, child);
         }
 
@@ -268,27 +284,35 @@ public class SkillerWhaleSync {
         return v.replaceAll("[\\[\\]\"]","").split(" +");
     }
 
-    /**
-     * Creates a WatchService and registers the given directory
-     */
-    SkillerWhaleSync() throws IOException {
-        this.attendanceId = getenvWithDefault("ATTENDANCE_ID", null);
-        this.attendanceIdFile = this.attendanceId == null ?
-            Paths.get(getenvWithDefault("ATTENDANCE_ID_FILE", "attendance_id")) :
-            null;
-        this.serverUrl = getenvWithDefault("SERVER_URL", "https://train.skillerwhale.com/");
-        this.base = Paths.get(getenvWithDefault("WATCHER_BASE_PATH", ".")).normalize().toAbsolutePath();
-        this.watchedExts = getenvAndSplit("WATCHED_EXTS");
-        this.ignoreDirs = getenvAndSplit("IGNORE_DIRS");
+    SkillerWhaleSync(String attendanceId, Path attendanceIdFile, String serverUrl, Path base, String[] watchedExts, String[] ignoreDirs) throws IOException {
+        this.attendanceId = attendanceId;
+        this.attendanceIdFile = attendanceIdFile;
+        this.serverUrl = serverUrl;
+        this.base = base;
+        this.watchedExts = watchedExts;
+        this.ignoreDirs = ignoreDirs;
+
         this.watcher = FileSystems.getDefault().newWatchService();
         this.keys = new HashMap<WatchKey,Path>();
         this.updatedFiles = new HashMap<Path,Long>();
+
         registerAll(base);
         readAttendanceId();
     }
 
+    public static SkillerWhaleSync createFromEnvironment() throws IOException {
+        return new SkillerWhaleSync(
+            getenvWithDefault("ATTENDANCE_ID", null),
+            Paths.get(getenvWithDefault("ATTENDANCE_ID_FILE", "attendance_id")),
+            getenvWithDefault("SERVER_URL", "https://train.skillerwhale.com/"),
+            Paths.get(getenvWithDefault("WATCHER_BASE_PATH", ".")).normalize().toAbsolutePath(),
+            getenvAndSplit("WATCHED_EXTS"),
+            getenvAndSplit("IGNORE_DIRS")
+        );
+    }
+
     public static void main(String[] args) throws IOException, InterruptedException {
-        var sync = new SkillerWhaleSync();
+        var sync = createFromEnvironment();
         long lastPing = 0;
         while(true) {
             sync.readAttendanceId();
