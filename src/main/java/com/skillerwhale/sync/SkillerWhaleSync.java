@@ -1,33 +1,35 @@
 package com.skillerwhale.sync;
 
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
-import java.nio.charset.Charset;
-import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CoderResult;
-import java.nio.file.*;
-import static java.nio.file.LinkOption.*;
-import java.nio.file.attribute.*;
 import java.io.*;
 import java.util.*;
 import java.util.regex.*;
 import java.util.logging.*;
 import java.util.concurrent.TimeUnit;
+import java.time.Duration;
+
+import java.nio.*;
+import java.nio.charset.*;
+import java.nio.file.*;
+import java.nio.file.attribute.*;
+import static java.nio.file.LinkOption.*;
+
 import java.net.http.*;
 import java.net.URI;
 
 public class SkillerWhaleSync {
     /* Logging */
     {
-        System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT %4$s %2$s %5$s%6$s%n");
+        //  String.format(format, date, source, logger, level, message, thrown);
+        System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT %4$.1s %5$s%6$s%n");
     }
     private static final Logger LOG = Logger.getLogger( SkillerWhaleSync.class.getName() );
 
     /* Performance tuning */
     public static final int MAX_UPLOAD_BYTES = 10_000_000;
-    public static final int SEND_AFTER_MILLIS = 250;
-    public static final int WAIT_POLL_MILLIS = 500;
+    public static final int SEND_AFTER_MILLIS = 100;
+    public static final int WAIT_POLL_MILLIS = 1000;
     public static final int PING_EVERY_MILLIS = 2000; // multiple of WAIT_POLL_MILLIS
+    public static final int PING_WARNING_MILLIS = 5000;
 
     /* Parsed configuration */
     private final String serverUrl;
@@ -38,22 +40,25 @@ public class SkillerWhaleSync {
 
     /* Runtime */
     private final WatchService watcher;
-    private final Map<WatchKey,Path> keys;
-    private final Map<Path,Long> updatedFiles;
+    interface PathEventFired { void event(WatchEvent<Path> e) throws IOException; }
+    private final Map<WatchKey,List<PathEventFired>> watchKeys;
+    private final Map<Path,Long> filesToPostTimes;
     private String attendanceId;
-    private boolean attendanceIdValid = false;
+    private boolean attendanceIdValid;
 
     private void postJSON(String uri, String data) throws IOException, InterruptedException {
         // Don't forget `java -Djdk.httpclient.HttpClient.log=headers,requests` for debugging
-
-        HttpClient client = HttpClient.newHttpClient();
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(uri))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(data))
-                .build();
-
+        HttpClient client = HttpClient.newBuilder().
+            connectTimeout(Duration.ofSeconds(2)).
+            build();
+        HttpRequest request = HttpRequest.newBuilder().
+            uri(URI.create(uri)).
+            POST(HttpRequest.BodyPublishers.ofString(data)).
+            timeout(Duration.ofSeconds(4)).
+            header("Content-Type", "application/json").
+            build();
         HttpResponse<?> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
         if (response.statusCode() >= 200 && response.statusCode() < 300) {
             return;
         }
@@ -65,45 +70,43 @@ public class SkillerWhaleSync {
             }
         }
 
+        LOG.log(Level.WARNING, response.body().toString());
         // Ignore 500 errors
     }
 
-    private boolean postToEndpoint(String endpoint, String data) throws IOException, InterruptedException {
+    private boolean postToTrainEndpoint(String endpoint, String data) throws IOException, InterruptedException {
         if (!attendanceIdValid)
             return false;
         postJSON(serverUrl+"attendances/"+attendanceId+"/"+endpoint, data);
         return true;
     }
 
-    private boolean ping() throws IOException, InterruptedException {
-        return postToEndpoint("pings", "");
-    }
-/*
-    private String getEncodingClue(byte[] data) {
-        if (data.length > 3 && data[0] == 0xef && data[1] == 0xbb && data[2] == 0xbf) {
-            return "UTF-8";
-        }
-        String asciiHeader = new String(data, 0, 1000, "ASCII");
-        Matcher m = Pattern.compile("^[ \t\f]*#.*?coding[:=][ \t]*([-_.a-zA-Z0-9]+)", Pattern.MULTILINE).matcher(asciiHeader);
-        if (m.matches()) {
-            return m.group(1);
-        }
-        return null;
-    }
-*/
-    /* Assumptions for a random file read off the disc: 1) it's UTF-8, or 2)
-     * we still want to see it, so interpret (badly) as ISO-8859-1.
-     */
+    /* Turn an unknown source code file read off the disc into a String */
     public static String bytesToString(byte[] data) {
-        //String encodingClue = getEncodingClue();
-        for (String tryCharset : new String[]{"UTF8","ISO-8859-1"}) {
+        String tryEncoding = "UTF-8";
+
+        if (data.length > 3 && data[0] == 0xef && data[1] == 0xbb && data[2] == 0xbf) {
+            // Byte-order mark (Windows Note) header, claims to be UTF-8
+            data = Arrays.copyOfRange(data, 3, data.length);
+        } else {
+            // Check for Python magic encoding line
+            String asciiHeader = StandardCharsets.US_ASCII.decode(ByteBuffer.wrap(data, 0, data.length > 1000 ? 1000 : data.length)).toString();
+            Matcher m = Pattern.compile("^[ \t\f]*#.*?coding[:=][ \t]*([-_.a-zA-Z0-9]+)", Pattern.MULTILINE).matcher(asciiHeader);
+            if (m.matches()) {
+                tryEncoding = m.group(1);
+            }
+        }
+
+        for (String tryCharset : new String[]{tryEncoding, "ISO-8859-1"}) {
             CharBuffer     out     = CharBuffer.allocate(data.length);
             CharsetDecoder decoder = Charset.forName(tryCharset).newDecoder();
+            // Use 3-argument decode() which will stop on a decoding error rather than bodge
             if (decoder.decode(ByteBuffer.wrap(data), out, false) == CoderResult.UNDERFLOW) {
                 out.flip();
                 return out.toString();
             }
         }
+
         return null;
     }
 
@@ -117,43 +120,39 @@ public class SkillerWhaleSync {
                 case '\n' -> "\\n";
                 case '\f' -> "\\f";
                 case '\r' -> "\\r";
-                default -> c < ' ' ? String.format("\\u%04x", c) : c;
+                default -> c < ' ' ? String.format("\\u%04x", (int) c) : c;
             });
         return sb.append('"').toString();
     }
 
-    private boolean postFile(Path path, byte[] contents) throws IOException, InterruptedException {
-        return postToEndpoint(
+    private boolean postFileSnapshot(Path path, byte[] contents) throws IOException, InterruptedException {
+        String contentsAsString = bytesToString(contents);
+        if (contentsAsString == null) {
+            LOG.log(Level.WARNING, "Couldn't decode "+path+" as string, will not post");
+            return false;
+        }
+        return postToTrainEndpoint(
             "file_snapshots",
             "{"+
             "\"relative_path\": "+ jsonStringQuote(base.relativize(path).toString()) +
             ","+
-            "\"contents\": "+jsonStringQuote(bytesToString(contents))
+            "\"contents\": "+jsonStringQuote(contentsAsString)
             +" }"
         );
     }
 
-    private void register(Path dir) throws IOException {
-        WatchKey key = dir.register(watcher, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_DELETE, StandardWatchEventKinds.ENTRY_MODIFY);
-        /*Path prev = keys.get(key);
-        if (prev == null) {
-            System.out.format("register: %s\n", dir);
-        } else {
-            if (!dir.equals(prev)) {
-                System.out.format("update: %s -> %s\n", prev, dir);
-            }
-        }*/
-        keys.put(key, dir);
+    private boolean postPing() throws IOException, InterruptedException {
+        return postToTrainEndpoint("pings", "");
     }
 
     private void readAttendanceId() {
         try {
-            if (Files.size(attendanceIdFile) < 100) {
+            if (Files.exists(attendanceIdFile, LinkOption.NOFOLLOW_LINKS) && Files.size(attendanceIdFile) < 100) {
                 String newAttendanceId = Files.readString(attendanceIdFile).replaceAll("\\s","");
                 if (!newAttendanceId.equals(attendanceId)) {
                     attendanceId = newAttendanceId;
                     attendanceIdValid = true;
-                    ping();
+                    postPing();
                     if (attendanceIdValid == true) {
                         LOG.log(Level.INFO, "valid   {0}", attendanceId);
                     } else {
@@ -167,19 +166,62 @@ public class SkillerWhaleSync {
         }
     }
 
-    private void registerAll(final Path start) throws IOException {
+    void registerDir(Path p, PathEventFired handler) throws IOException {
+        WatchKey k = p.register(watcher,
+            StandardWatchEventKinds.ENTRY_CREATE,
+            StandardWatchEventKinds.ENTRY_DELETE,
+            StandardWatchEventKinds.ENTRY_MODIFY
+        );
+        List<PathEventFired> handlers = watchKeys.getOrDefault(k, new ArrayList<PathEventFired>());
+        handlers.add(handler);
+        watchKeys.put(k, handlers);
+    }
+
+    void registerAttendanceIdWatcher() throws IOException {
+        registerDir(attendanceIdFile.getParent(), (WatchEvent<Path> event) -> {
+            if (event.kind() == StandardWatchEventKinds.ENTRY_MODIFY && event.context().endsWith(attendanceIdFile.getFileName())) {
+                readAttendanceId();
+            }
+        });
+    }
+
+    private void registerDirectoryWatcher(final Path start) throws IOException {
+        LOG.log(Level.INFO, "watching file tree "+start.toString());
         Files.walkFileTree(start, new SimpleFileVisitor<Path>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
                 throws IOException
             {
-                register(dir);
+                registerDir(dir, (WatchEvent<Path> event) -> {
+                    Path child = dir.resolve(event.context().toString()).toAbsolutePath();
+
+                    boolean matchExt = Arrays.stream(watchedExts).
+                        anyMatch(s -> child.toString().endsWith(s));
+                    boolean matchIgnore = Arrays.stream(ignoreDirs).
+                        anyMatch(s -> child.toString().contains(s+"/"));
+
+                    LOG.log(Level.FINEST, "child={0}, matchExt="+matchExt+", matchIgnore="+matchIgnore, child.toString());
+
+                    if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(child, NOFOLLOW_LINKS)) {
+                        registerDirectoryWatcher(child);
+                        return;
+                    }
+
+                    if ((event.kind() == StandardWatchEventKinds.ENTRY_CREATE || event.kind() == StandardWatchEventKinds.ENTRY_MODIFY) &&
+                        Files.isRegularFile(child, LinkOption.NOFOLLOW_LINKS) &&
+                        child.startsWith(base) &&
+                        matchExt && !matchIgnore) {
+
+                            filesToPostTimes.put(child, System.currentTimeMillis() + SEND_AFTER_MILLIS);
+
+                    }
+                });
                 return FileVisitResult.CONTINUE;
             }
         });
     }
 
-    void readAndPostFile(Path file) throws InterruptedException, IOException {
+    void readAndPostFileSnapshot(Path file) throws InterruptedException, IOException {
         try (FileInputStream in = new FileInputStream(file.toString())) {
             var len = in.available();
             if (len < MAX_UPLOAD_BYTES) {
@@ -187,7 +229,7 @@ public class SkillerWhaleSync {
                 if (in.read(buffer) != len) {
                     throw new IOException("Couldn't read all of "+file+" in one go");
                 }
-                if (postFile(file, buffer)) {
+                if (postFileSnapshot(file, buffer)) {
                     LOG.log(Level.INFO,    "upload {0}", file);
                 } else {
                     LOG.log(Level.WARNING, "ignore {0}", file);
@@ -198,90 +240,56 @@ public class SkillerWhaleSync {
         }
     }
 
-    void postUpdatedFiles() throws IOException, InterruptedException {
-        for (var e : updatedFiles.entrySet()) {
-            if (System.currentTimeMillis() - e.getValue() > SEND_AFTER_MILLIS) {
-                readAndPostFile(e.getKey());
-                updatedFiles.remove(e.getKey());
-            }
-        }
+    long nextFlushAt() {
+        return filesToPostTimes.values().stream().reduce(Long.MAX_VALUE, (soonest,t) -> t < soonest ? t : soonest);
     }
 
-    void processEvent(WatchEvent<?> event, Path child) throws IOException {
-        try {
-            switch (event.kind().name()) {
-                case "OVERFLOW" -> {
-                    LOG.log(Level.WARNING, "overflow, might have missed something");
-                }
-
-                case "ENTRY_CREATE" -> {
-                    if (Files.isDirectory(child, NOFOLLOW_LINKS)) {
-                        registerAll(child);
-                    } else if (Files.isRegularFile(child, NOFOLLOW_LINKS)) {
-                        //checkFile(child);
-                        updatedFiles.put(child, System.currentTimeMillis());
-                    }
-                }
-                case "ENTRY_DELETE" -> {
-                    // Server doesn't care about deletes?
-                }
-                case "ENTRY_MODIFY" -> {
-                    if (Files.isRegularFile(child, NOFOLLOW_LINKS)) {
-                        //checkFile(child);
-                        updatedFiles.put(child, System.currentTimeMillis());
-                    }
-                }
+    void flushOverdueFileSnapshots() throws IOException, InterruptedException {
+        for (var e : filesToPostTimes.entrySet()) {
+            Path path = e.getKey();
+            long updateTime = e.getValue();
+            if (System.currentTimeMillis() > updateTime) {
+                readAndPostFileSnapshot(path);
+                filesToPostTimes.remove(path);
             }
-        }
-        catch (java.nio.file.NoSuchFileException nsf) {
-            // Always a possible race between notification & file being deleted
-            //
-            // Other IOExceptions would seem unusual, should probably let the program die
         }
     }
 
     /**
      * Process all events for keys queued to the watcher
      */
-    boolean waitAndProcessEvents() throws InterruptedException, IOException {
-        WatchKey key = watcher.poll(WAIT_POLL_MILLIS, TimeUnit.MILLISECONDS);
+    boolean waitForFileUpdates(long until) throws InterruptedException, IOException {
+        WatchKey key = watcher.poll(until - System.currentTimeMillis(), TimeUnit.MILLISECONDS);
         if (key == null) {
             return false;
         }
-        Path dir = keys.get(key);
-        assert(dir != null);
+        List<PathEventFired> handlers = watchKeys.get(key);
+        assert(handlers != null);
 
         for (WatchEvent<?> event : key.pollEvents()) {
-            Path child = dir.resolve(event.context().toString()).toAbsolutePath();
-            boolean matchExt = Arrays.stream(watchedExts).
-                anyMatch(s -> child.toString().endsWith(s));
-            boolean matchIgnore = Arrays.stream(ignoreDirs).
-                anyMatch(s -> child.toString().contains(s+"/"));
-
-            // additional paranoia
-            if (Files.isRegularFile(child, LinkOption.NOFOLLOW_LINKS) && child.startsWith(base) && matchExt && !matchIgnore)
-                processEvent(event, child);
+            for (PathEventFired handler : handlers) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    var eventPath = (WatchEvent<Path>) event;
+                    handler.event(eventPath);
+                }
+                catch (ClassCastException x) {
+                    if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
+                        LOG.log(Level.WARNING, "overflow, might have missed something");
+                    }
+                }
+            }
         }
 
         if (!key.reset()) {
-            keys.remove(key);
+            watchKeys.remove(key);
         }
 
         return true;
     }
 
-    private static String getenvWithDefault(String name, String defaultV) {
-        String v = System.getenv(name);
-        return v != null ? v : defaultV;
-    }
-
-    private static String[] getenvAndSplit(String name) {
-        String v = getenvWithDefault(name, null);
-        if (v == null) {
-            return new String[0];
-        }
-        // deal with simple JSON array
-        return v.replaceAll("[\\[\\]\"]","").split(" +");
+    class ConfigError extends Error {
+        ConfigError(String s) { super(s); }
     }
 
     SkillerWhaleSync(String attendanceId, Path attendanceIdFile, String serverUrl, Path base, String[] watchedExts, String[] ignoreDirs) throws IOException {
@@ -292,39 +300,84 @@ public class SkillerWhaleSync {
         this.watchedExts = watchedExts;
         this.ignoreDirs = ignoreDirs;
 
+        this.attendanceIdValid = this.attendanceId != null;
         this.watcher = FileSystems.getDefault().newWatchService();
-        this.keys = new HashMap<WatchKey,Path>();
-        this.updatedFiles = new HashMap<Path,Long>();
+        this.watchKeys = new HashMap<WatchKey,List<PathEventFired>>();
+        this.filesToPostTimes = new HashMap<Path,Long>();
 
-        registerAll(base);
         readAttendanceId();
+
+        if (attendanceIdFile != null) {
+            attendanceIdFile = attendanceIdFile.toAbsolutePath();
+            registerAttendanceIdWatcher();
+        }
+
+        if (!attendanceIdValid) {
+            if (attendanceIdFile == null) {
+                throw new ConfigError("Can't start without either ATTENDANCE_ID or an ATTENDANCE_ID_FILE");
+            }
+            LOG.log(Level.INFO, "Set attendance_id in '"+attendanceIdFile+"' file to start synchronisation", attendanceId);
+        }
+
+        if (watchedExts.length == 0) {
+            throw new ConfigError("WATCHED_EXTS is empty");
+        }
+
+        if (ignoreDirs.length == 0) {
+            LOG.log(Level.WARNING, "IGNORE_DIRS is empty");
+        }
+
+        registerDirectoryWatcher(base);
     }
 
-    public static SkillerWhaleSync createFromEnvironment() throws IOException {
+    public static String[] getenvAndSplit(Map<String,String> e, String name) {
+        String v = e.getOrDefault(name, null);
+        if (v == null) {
+            return new String[0];
+        }
+        // deal with simple JSON array
+        return v.replaceAll("[\\[\\]\"]","").split(" +");
+    }
+
+    public static SkillerWhaleSync createFromEnvironment(Map<String,String> e) throws IOException {
         return new SkillerWhaleSync(
-            getenvWithDefault("ATTENDANCE_ID", null),
-            Paths.get(getenvWithDefault("ATTENDANCE_ID_FILE", "attendance_id")),
-            getenvWithDefault("SERVER_URL", "https://train.skillerwhale.com/"),
-            Paths.get(getenvWithDefault("WATCHER_BASE_PATH", ".")).normalize().toAbsolutePath(),
-            getenvAndSplit("WATCHED_EXTS"),
-            getenvAndSplit("IGNORE_DIRS")
+            e.getOrDefault("ATTENDANCE_ID", null),
+            Paths.get(e.getOrDefault("ATTENDANCE_ID_FILE", "attendance_id")),
+            e.getOrDefault("SERVER_URL", "https://train.skillerwhale.com/"),
+            Paths.get(e.getOrDefault("WATCHER_BASE_PATH", ".")).normalize().toAbsolutePath(),
+            getenvAndSplit(e, "WATCHED_EXTS"),
+            getenvAndSplit(e, "IGNORE_DIRS")
         );
     }
 
-    public static void main(String[] args) throws IOException, InterruptedException {
-        var sync = createFromEnvironment();
-        long lastPing = 0;
-        while(true) {
-            sync.readAttendanceId();
+    public static void logo() {
+        System.out.println("     skillerwhale.com file synchronisation      ");
+        try (InputStream in = SkillerWhaleSync.class.getResourceAsStream("/logo")) {
+            System.out.write(in.readAllBytes());
+        }
+        catch (IOException i) { /* no logo */ }
+    }
 
-            long now = System.currentTimeMillis();
-            if (lastPing + PING_EVERY_MILLIS < now) {
-                sync.ping();
-                lastPing = now;
+    public static void main(String[] args) throws IOException, InterruptedException {
+        SkillerWhaleSync sync = createFromEnvironment(System.getenv());
+        int slowPingWarnings = 0;
+        long nextPing = 0;
+        logo();
+
+        while(true) {
+            if (nextPing < System.currentTimeMillis()) {
+                if (nextPing != 0 && System.currentTimeMillis() - nextPing > PING_WARNING_MILLIS) {
+                    LOG.warning("Slow ping warnings: "+(++slowPingWarnings));
+                }
+                sync.postPing();
+                nextPing = System.currentTimeMillis() + PING_EVERY_MILLIS;
             }
 
-            sync.postUpdatedFiles();
-            sync.waitAndProcessEvents();
+            sync.waitForFileUpdates(
+                Math.min(System.currentTimeMillis() + WAIT_POLL_MILLIS,
+                Math.min(nextPing, sync.nextFlushAt()))
+            );
+            sync.flushOverdueFileSnapshots();
         }
     }
 }
