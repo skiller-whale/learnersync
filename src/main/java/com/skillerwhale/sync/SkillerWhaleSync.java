@@ -293,31 +293,6 @@ public class SkillerWhaleSync {
     }
 
     SkillerWhaleSync(String attendanceId, Path attendanceIdFile, String serverUrl, Path base, String[] watchedExts, String[] ignoreDirs) throws IOException {
-        this.attendanceId = attendanceId;
-        this.attendanceIdFile = attendanceIdFile;
-        this.serverUrl = serverUrl;
-        this.base = base;
-        this.watchedExts = watchedExts;
-        this.ignoreDirs = ignoreDirs;
-
-        this.attendanceIdValid = this.attendanceId != null;
-        this.watcher = FileSystems.getDefault().newWatchService();
-        this.watchKeys = new HashMap<WatchKey,List<PathEventFired>>();
-        this.filesToPostTimes = new HashMap<Path,Long>();
-
-        readAttendanceId();
-
-        if (attendanceIdFile != null) {
-            attendanceIdFile = attendanceIdFile.toAbsolutePath();
-            registerAttendanceIdWatcher();
-        }
-
-        if (!attendanceIdValid) {
-            if (attendanceIdFile == null) {
-                throw new ConfigError("Can't start without either ATTENDANCE_ID or an ATTENDANCE_ID_FILE");
-            }
-            LOG.log(Level.INFO, "Set attendance_id in '"+attendanceIdFile+"' file to start synchronisation", attendanceId);
-        }
 
         if (watchedExts.length == 0) {
             throw new ConfigError("WATCHED_EXTS is empty");
@@ -327,6 +302,34 @@ public class SkillerWhaleSync {
             LOG.log(Level.WARNING, "IGNORE_DIRS is empty");
         }
 
+        this.serverUrl = serverUrl;
+
+        this.watcher = FileSystems.getDefault().newWatchService();
+        this.watchKeys = new HashMap<WatchKey,List<PathEventFired>>();
+        this.filesToPostTimes = new HashMap<Path,Long>();
+
+        this.attendanceId = attendanceId;
+
+        if (attendanceIdFile != null) {
+            this.attendanceIdFile = attendanceIdFile.toAbsolutePath();
+            registerAttendanceIdWatcher();
+            readAttendanceId();
+        } else {
+            this.attendanceIdFile = null;
+        }
+
+        if (!attendanceIdValid) {
+            if (attendanceIdFile == null) {
+                throw new ConfigError("Can't start without either ATTENDANCE_ID or an ATTENDANCE_ID_FILE");
+            }
+            LOG.log(Level.INFO, "Set attendance_id in '"+attendanceIdFile+"' file to start synchronisation", attendanceId);
+        }
+
+        this.attendanceIdValid = this.attendanceId != null;
+
+        this.base = base;
+        this.watchedExts = watchedExts;
+        this.ignoreDirs = ignoreDirs;
         registerDirectoryWatcher(base);
     }
 
