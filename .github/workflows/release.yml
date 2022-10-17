@@ -25,6 +25,6 @@ jobs:
           name: SkillerWhaleSync-${{ matrix.os }}
           path: |
             build/libs/SkillerWhaleSync.jar
-            SkillerWhaleSync-*
+            SkillerWhaleSync*
             build/reports/test/test
             build/test-results
