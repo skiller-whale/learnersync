@@ -1,6 +1,7 @@
 plugins {
 	id 'java'
     id 'org.graalvm.buildtools.native' version '0.9.14'
+    id 'io.github.sgtsilvio.gradle.defaults' version "0.2.0"
 }
 
 repositories {
