@@ -2,6 +2,7 @@ package com.skillerwhale.sync;
 
 import java.io.*;
 import java.util.*;
+import java.util.stream.Stream;
 import java.util.regex.*;
 import java.util.logging.*;
 import java.util.concurrent.TimeUnit;
@@ -35,7 +36,7 @@ public class SkillerWhaleSync {
     private final String serverUrl;
     private final Path attendanceIdFile;
     private final Path base;
-    private final String[] ignoreDirs;
+    private final PathMatcher[] ignore;
     private final String[] watchedExts;
 
     /* Runtime */
@@ -197,8 +198,8 @@ public class SkillerWhaleSync {
 
                     boolean matchExt = Arrays.stream(watchedExts).
                         anyMatch(s -> child.toString().endsWith(s));
-                    boolean matchIgnore = Arrays.stream(ignoreDirs).
-                        anyMatch(s -> child.toString().contains(s+"/"));
+                    boolean matchIgnore = Arrays.stream(ignore).
+                        anyMatch(s -> s.matches(child));
 
                     LOG.log(Level.FINEST, "child={0}, matchExt="+matchExt+", matchIgnore="+matchIgnore, child.toString());
 
@@ -232,7 +233,7 @@ public class SkillerWhaleSync {
                 if (postFileSnapshot(file, buffer)) {
                     LOG.log(Level.INFO,    "upload {0}", file);
                 } else {
-                    LOG.log(Level.WARNING, "ignore {0}", file);
+                    LOG.log(Level.WARNING, "cannot upload {0}", file);
                 }
             } else {
                     LOG.log(Level.WARNING, "too large {0}", file);
@@ -292,14 +293,14 @@ public class SkillerWhaleSync {
         ConfigError(String s) { super(s); }
     }
 
-    SkillerWhaleSync(String attendanceId, Path attendanceIdFile, String serverUrl, Path base, String[] watchedExts, String[] ignoreDirs) throws IOException {
+    SkillerWhaleSync(String attendanceId, Path attendanceIdFile, String serverUrl, Path base, String[] watchedExts, PathMatcher[] ignore) throws IOException {
 
         if (watchedExts.length == 0) {
             throw new ConfigError("WATCHED_EXTS is empty");
         }
 
-        if (ignoreDirs.length == 0) {
-            LOG.log(Level.WARNING, "IGNORE_DIRS is empty");
+        if (ignore.length == 0) {
+            LOG.log(Level.WARNING, "IGNORE_DIRS and IGNORE_MATCH both empty");
         }
 
         this.serverUrl = serverUrl;
@@ -329,7 +330,7 @@ public class SkillerWhaleSync {
 
         this.base = base;
         this.watchedExts = watchedExts;
-        this.ignoreDirs = ignoreDirs;
+        this.ignore = ignore;
         registerDirectoryWatcher(base);
     }
 
@@ -343,13 +344,19 @@ public class SkillerWhaleSync {
     }
 
     public static SkillerWhaleSync createFromEnvironment(Map<String,String> e) throws IOException {
+        Stream<String> i1 = Arrays.stream(getenvAndSplit(e, "IGNORE_DIRS")).map(dir -> "**/"+dir+"/**");
+        Stream<String> i2 = Arrays.stream(getenvAndSplit(e, "IGNORE_MATCH"));
+        PathMatcher[] ignore = Stream.concat(i1, i2).
+            map(s -> FileSystems.getDefault().getPathMatcher("glob:"+s)).
+            toArray(PathMatcher[]::new);
+
         return new SkillerWhaleSync(
             e.getOrDefault("ATTENDANCE_ID", null),
             Paths.get(e.getOrDefault("ATTENDANCE_ID_FILE", "attendance_id")),
             e.getOrDefault("SERVER_URL", "https://train.skillerwhale.com/"),
             Paths.get(e.getOrDefault("WATCHER_BASE_PATH", ".")).normalize().toAbsolutePath(),
             getenvAndSplit(e, "WATCHED_EXTS"),
-            getenvAndSplit(e, "IGNORE_DIRS")
+            ignore
         );
     }
 
