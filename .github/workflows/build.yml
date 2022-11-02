@@ -1,5 +1,7 @@
-name: GraalVM Native Image builds
-on: [push, pull_request]
+name: Build and package
+on:
+  push:
+    branches: [master]
 jobs:
   build:
     name: SkillerWhaleSync on ${{ matrix.os }}
@@ -15,7 +17,7 @@ jobs:
           java-version: '17'
           components: 'native-image'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and run SkillerWhaleSync.java
+      - name: Build
         run: |
           ./gradlew build
           native-image --no-server -jar build/libs/SkillerWhaleSync.jar -H:IncludeResources=logo
@@ -28,3 +30,19 @@ jobs:
             SkillerWhaleSync*
             build/reports/test/test
             build/test-results
+  release:
+    name: "Prelease"
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v2
+      - name: Display fetched artifacts
+        run: ls -R
+      - uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "latest"
+          prerelease: true
+          title: "Development Build"
+          files: |
+            SkillerWhaleSync-*
