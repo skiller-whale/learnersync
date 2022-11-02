@@ -1,7 +1,7 @@
 name: Build and package
 on:
   push:
-    branches: [master]
+    branches: [main]
 jobs:
   build:
     name: SkillerWhaleSync on ${{ matrix.os }}
