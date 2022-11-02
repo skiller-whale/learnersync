@@ -45,4 +45,6 @@ jobs:
           prerelease: true
           title: "Development Build"
           files: |
-            SkillerWhaleSync-*
+            SkillerWhaleSync-macos-latest
+            SkillerWhaleSync-windows-latest
+            SkillerWhaleSync-ubuntu-latest
