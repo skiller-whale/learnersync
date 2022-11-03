@@ -5,6 +5,7 @@ import java.util.*;
 import java.util.stream.Stream;
 import java.util.regex.*;
 import java.util.logging.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.time.Duration;
 
@@ -29,13 +30,16 @@ public class SkillerWhaleSync {
     public static final int MAX_UPLOAD_BYTES = 10_000_000;
     public static final int SEND_AFTER_MILLIS = 100;
     public static final int WAIT_POLL_MILLIS = 1000;
-    public static final int PING_EVERY_MILLIS = 2000; // multiple of WAIT_POLL_MILLIS
+    public static final int PING_EVERY_MILLIS = 2000;
     public static final int PING_WARNING_MILLIS = 5000;
+    public static final int MAX_RETRY_DELAY = 30000;
+    public static final int MAX_TRIGGER_TIME = 2500;
 
     /* Parsed configuration */
     private final String serverUrl;
     private final Path attendanceIdFile;
     private final Path base;
+    private final Path triggerExec;
     private final PathMatcher[] ignore;
     private final String[] watchedExts;
 
@@ -44,8 +48,9 @@ public class SkillerWhaleSync {
     interface PathEventFired { void event(WatchEvent<Path> e) throws IOException; }
     private final Map<WatchKey,List<PathEventFired>> watchKeys;
     private final Map<Path,Long> filesToPostTimes;
-    private String attendanceId;
-    private boolean attendanceIdValid;
+
+    private volatile String attendanceId;
+    private volatile boolean attendanceIdValid;
 
     private void postJSON(String uri, String data) throws IOException, InterruptedException {
         // Don't forget `java -Djdk.httpclient.HttpClient.log=headers,requests` for debugging
@@ -203,7 +208,7 @@ public class SkillerWhaleSync {
 
                     LOG.log(Level.FINEST, "child={0}, matchExt="+matchExt+", matchIgnore="+matchIgnore, child.toString());
 
-                    if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(child, NOFOLLOW_LINKS)) {
+                    if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(child, NOFOLLOW_LINKS) && !matchIgnore) {
                         registerDirectoryWatcher(child);
                         return;
                     }
@@ -222,7 +227,7 @@ public class SkillerWhaleSync {
         });
     }
 
-    void readAndPostFileSnapshot(Path file) throws InterruptedException, IOException {
+    boolean readAndPostFileSnapshot(Path file) throws InterruptedException, IOException {
         try (FileInputStream in = new FileInputStream(file.toString())) {
             var len = in.available();
             if (len < MAX_UPLOAD_BYTES) {
@@ -232,28 +237,63 @@ public class SkillerWhaleSync {
                 }
                 if (postFileSnapshot(file, buffer)) {
                     LOG.log(Level.INFO,    "upload {0}", file);
+                    return true;
                 } else {
                     LOG.log(Level.WARNING, "cannot upload {0}", file);
+                    return false;
                 }
             } else {
-                    LOG.log(Level.WARNING, "too large {0}", file);
+                LOG.log(Level.WARNING, "too large {0}", file);
+                return true;
             }
         }
+    }
+
+    boolean runTrigger(Path target) {
+        if (this.triggerExec == null)
+            return true;
+
+        try {
+            Process running = Runtime.getRuntime().exec(new String[]{this.triggerExec.toString(), target.toString()});
+            InputStreamReader esr = new InputStreamReader(running.getErrorStream());
+            if (!running.waitFor(MAX_TRIGGER_TIME, TimeUnit.MILLISECONDS)) {
+                LOG.warning("trigger program timed out");
+                running.destroyForcibly();
+            }
+            char[] errData = new char[5000];
+            int errChars = esr.read(errData);
+            if (errChars > 0) {
+                LOG.warning(new String(errData, 0, errChars).replace("\n", ""));
+            }
+            return running.exitValue() == 0;
+        }
+        catch (IOException io) {
+            LOG.warning(io.toString());
+        }
+        catch (InterruptedException i) {
+        }
+        return false;
     }
 
     long nextFlushAt() {
         return filesToPostTimes.values().stream().reduce(Long.MAX_VALUE, (soonest,t) -> t < soonest ? t : soonest);
     }
 
-    void flushOverdueFileSnapshots() throws IOException, InterruptedException {
+    boolean flushOverdueFileSnapshots() throws IOException, InterruptedException {
         for (var e : filesToPostTimes.entrySet()) {
             Path path = e.getKey();
             long updateTime = e.getValue();
             if (System.currentTimeMillis() > updateTime) {
-                readAndPostFileSnapshot(path);
-                filesToPostTimes.remove(path);
+                if (readAndPostFileSnapshot(path)) {
+                    filesToPostTimes.remove(path);
+                } else {
+                    return false;
+                }
+                /* Ignore trigger program failures */
+                runTrigger(path);
             }
         }
+        return true;
     }
 
     /**
@@ -293,7 +333,7 @@ public class SkillerWhaleSync {
         ConfigError(String s) { super(s); }
     }
 
-    SkillerWhaleSync(String attendanceId, Path attendanceIdFile, String serverUrl, Path base, String[] watchedExts, PathMatcher[] ignore) throws IOException {
+    SkillerWhaleSync(String attendanceId, Path attendanceIdFile, String serverUrl, Path base, String[] watchedExts, Path triggerExec, PathMatcher[] ignore) throws IOException {
 
         if (watchedExts.length == 0) {
             throw new ConfigError("WATCHED_EXTS is empty");
@@ -331,6 +371,12 @@ public class SkillerWhaleSync {
         this.base = base;
         this.watchedExts = watchedExts;
         this.ignore = ignore;
+        this.triggerExec = triggerExec;
+
+        if (this.triggerExec != null && !Files.isExecutable(this.triggerExec)) {
+            throw new ConfigError("TRIGGER_EXEC is set to a file that isn't executable");
+        }
+
         registerDirectoryWatcher(base);
     }
 
@@ -356,38 +402,68 @@ public class SkillerWhaleSync {
             e.getOrDefault("SERVER_URL", "https://train.skillerwhale.com/"),
             Paths.get(e.getOrDefault("WATCHER_BASE_PATH", ".")).normalize().toAbsolutePath(),
             getenvAndSplit(e, "WATCHED_EXTS"),
+            e.get("TRIGGER_EXEC") != null ? Paths.get(e.get("TRIGGER_EXEC")) : null,
             ignore
         );
     }
 
-    public static void logo() {
-        System.out.println("     skillerwhale.com file synchronisation      ");
-        try (InputStream in = SkillerWhaleSync.class.getResourceAsStream("/logo")) {
+    public static boolean printResource(String name) {
+        try (InputStream in = SkillerWhaleSync.class.getResourceAsStream(name)) {
             System.out.write(in.readAllBytes());
+            return true;
         }
-        catch (IOException i) { /* no logo */ }
+        catch (IOException i) {
+            System.out.println("(couldn't find resource "+name+")");
+        }
+        return false;
     }
 
     public static void main(String[] args) throws IOException, InterruptedException {
-        SkillerWhaleSync sync = createFromEnvironment(System.getenv());
-        int slowPingWarnings = 0;
-        long nextPing = 0;
-        logo();
+        SkillerWhaleSync sync;
+        try {
+            sync = createFromEnvironment(System.getenv());
+        }
+        catch (ConfigError e) {
+            System.out.println("*** Can't start: "+e.getMessage());
+            printResource("/usage.txt");
+            return;
+        }
 
-        while(true) {
-            if (nextPing < System.currentTimeMillis()) {
-                if (nextPing != 0 && System.currentTimeMillis() - nextPing > PING_WARNING_MILLIS) {
-                    LOG.warning("Slow ping warnings: "+(++slowPingWarnings));
+        System.out.println("skillerwhale.com file synchronisation");
+        printResource("/logo");
+
+        /* run pings in a separate thread to ensure server knows we're alive */
+        Thread pinger = new Thread(() -> {
+            while (true) {
+                try {
+                    sync.postPing();
+                    Thread.sleep(PING_EVERY_MILLIS);
                 }
-                sync.postPing();
-                nextPing = System.currentTimeMillis() + PING_EVERY_MILLIS;
+                catch (IOException i) { LOG.warning("pinger I/O error "+i); }
+                catch (InterruptedException i) { }
             }
+        });
+        pinger.start();
 
-            sync.waitForFileUpdates(
-                Math.min(System.currentTimeMillis() + WAIT_POLL_MILLIS,
-                Math.min(nextPing, sync.nextFlushAt()))
-            );
-            sync.flushOverdueFileSnapshots();
+        long retryDelay = 0;
+        while(true) {
+            if (!pinger.isAlive()) {
+                LOG.warning("pinger has stopped");
+                break;
+            }
+            sync.waitForFileUpdates(sync.nextFlushAt() + retryDelay);
+            if (sync.attendanceIdValid && sync.flushOverdueFileSnapshots()) {
+                retryDelay = 0;
+            } else {
+                if (retryDelay == 0) {
+                    /* use randomness to stagger retries in case of server problems */
+                    retryDelay = ThreadLocalRandom.current().nextInt(100, 1500);
+                } else if (retryDelay < MAX_RETRY_DELAY) {
+                    retryDelay = retryDelay * 1800 / 1000;
+                } else {
+                    retryDelay += MAX_RETRY_DELAY;
+                }
+            }
         }
     }
 }

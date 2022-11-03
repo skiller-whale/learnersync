@@ -1,0 +1,39 @@
+Skiller Whale File Synchronisation - https://skillerwhale.com/
+
+This program is for learners to send exercise files to the Skiller Whale
+coach during a live session.  It is configured with environment variables.
+
+There is only one variable you must set:
+
+WATCHED_EXTS
+  the file extensions to watch for changes
+  e.g. "java go jsx"
+
+All other variables are optional:
+
+WATCHER_BASE_PATH
+  the directory to monitor for changes
+  defaults to "." (current directory)
+
+IGNORE_DIRS
+  space-separated names of directories to ignore
+  e.g. ".git bin"
+
+IGNORE_MATCH
+  space-separated specifications of files to ignore, matching on the path
+  e.g. "**/.DS_Store *.bin **/.nofollow/**"
+
+TRIGGER_EXEC
+  a program to run when any (filtered) filename has changed, which is sent as
+  a single command-line argument
+
+ATTENDANCE_ID
+  your identity in the current Skiller Whale coaching session, as found in
+  the top-right of your session window
+
+ATTENDANCE_ID_FILE
+  a filename from which ATTENDANCE_ID will be re-read
+  defaults to "./attendance_id"
+
+SERVER_URL
+  defaults to "https://train.skillerwhale.com/"
