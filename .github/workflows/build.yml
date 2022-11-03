@@ -56,7 +56,8 @@ jobs:
             mkdir /java
             curl -s -L https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-22.3.0/graalvm-ce-java17-linux-aarch64-22.3.0.tar.gz | tar xz --strip-components=1 -C /java
           run: |
-            ./gradlew nativeCompile
+            whoami
+            ./gradlew --no-daemon nativeCompile
             mv build/native/nativeCompile/SkillerWhaleSync{,-Linux-aarch64}
             cp -a build /artifacts/build
       - name: Upload Build
