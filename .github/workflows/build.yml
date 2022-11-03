@@ -21,7 +21,7 @@ jobs:
         run: ./gradlew nativeCompile
       - name: Rename native build (Windows)
         working-directory: build/native/nativeCompile
-        run: mv SkillerWhaleSync.exe SkillerWhaleSync-${{ runner.os }}-${{ runner.arch }}
+        run: mv SkillerWhaleSync.exe SkillerWhaleSync-${{ runner.os }}-${{ runner.arch }}.exe
         if: runner.os == 'Windows'
       - name: Rename native build (non-Windows)
         working-directory: build/native/nativeCompile
