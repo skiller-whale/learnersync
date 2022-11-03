@@ -52,7 +52,7 @@ jobs:
             JAVA_HOME: /java
           install: |
             apt-get update -q -y
-            apt-get install -q -y curl
+            apt-get install -q -y curl gcc zlib1g-dev build-essential
             mkdir /java
             export
             curl -s -L https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-22.3.0/graalvm-ce-java17-linux-aarch64-22.3.0.tar.gz | tar xz --strip-components=1 -C /java
