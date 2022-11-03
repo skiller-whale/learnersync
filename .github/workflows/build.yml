@@ -47,5 +47,5 @@ jobs:
           prerelease: true
           title: "Development Build"
           files: |
-            artifact/build/libs/SkillerWhaleSync.jar
-            artifact/build/native/nativeCompile/SkillerWhaleSync-*
+            artifact/libs/SkillerWhaleSync.jar
+            artifact/native/nativeCompile/SkillerWhaleSync-*
