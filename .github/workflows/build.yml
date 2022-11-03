@@ -18,20 +18,19 @@ jobs:
           components: 'native-image'
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build
-        run: |
-          ./gradlew build
-          native-image --no-server -jar build/libs/SkillerWhaleSync.jar -H:IncludeResources=logo
-      - name: Upload binary
+        run: ./gradlew nativeCompile
+      - name: Upload JAR
         uses: actions/upload-artifact@v3
         with:
-          name: SkillerWhaleSync-${{ matrix.os }}
-          path: |
-            build/libs/SkillerWhaleSync.jar
-            SkillerWhaleSync*
-            build/reports/test/test
-            build/test-results
+          name: SkillerWhaleSync-latest.jar
+          path: build/libs/SkillerWhaleSync.jar
+      - name: Upload Native
+        uses: actions/upload-artifact@v3
+        with:
+          name: SkillerWhaleSync-latest-${{ matrix.os }}-${{ runner.arch }}
+          path: build/native/nativeCompile/SkillerWhaleSync
   release:
-    name: "Prelease"
+    name: "Pre-release binary"
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -44,7 +43,4 @@ jobs:
           automatic_release_tag: "latest"
           prerelease: true
           title: "Development Build"
-          files: |
-            SkillerWhaleSync-macos-latest
-            SkillerWhaleSync-windows-latest
-            SkillerWhaleSync-ubuntu-latest
+          files: SkillerWhaleSync-*
