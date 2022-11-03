@@ -10,9 +10,6 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
     steps:
-      - name: Detect Windows
-        if: runner.os == 'Windows'
-        run: set EXE=.exe
       - uses: actions/checkout@v3
       - uses: graalvm/setup-graalvm@v1
         with:
@@ -22,9 +19,14 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build
         run: ./gradlew nativeCompile
-      - name: Rename native build
+      - name: Rename native build (Windows)
         working-directory: build/native/nativeCompile
-        run: mv SkillerWhaleSync{{ $env.EXE }} SkillerWhaleSync-${{ runner.os }}-${{ runner.arch }}
+        run: mv SkillerWhaleSync.exe SkillerWhaleSync-${{ runner.os }}-${{ runner.arch }}
+        if: runner.os == 'Windows'
+      - name: Rename native build (non-Windows)
+        working-directory: build/native/nativeCompile
+        run: mv SkillerWhaleSync SkillerWhaleSync-${{ runner.os }}-${{ runner.arch }}
+        if: runner.os != 'Windows'
       - name: Upload Build
         uses: actions/upload-artifact@v3
         with:
