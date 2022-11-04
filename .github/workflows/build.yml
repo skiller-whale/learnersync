@@ -42,7 +42,7 @@ jobs:
         name: Download build
       - name: Display fetched artifacts
         run: ls -R
-      - if: !startsWith(github.ref, 'refs/tags/v')
+      - if: "!startsWith(github.ref, 'refs/tags/v')"
         name: Create pre-release from main
         uses: "marvinpinto/action-automatic-releases@latest"
         with:
@@ -53,7 +53,7 @@ jobs:
           files: |
             artifact/libs/SkillerWhaleSync.jar
             artifact/native/nativeCompile/SkillerWhaleSync-*
-      - if: startsWith(github.ref, 'refs/tags/v')
+      - if: "startsWith(github.ref, 'refs/tags/v')"
         name: Create tagged release
         uses: "marvinpinto/action-automatic-releases@latest"
         with:
