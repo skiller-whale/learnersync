@@ -1,7 +1,7 @@
 name: Build and package
 on:
   push:
-    branches: [main]
+    branches: [main, go-rewrite]
     tags:
       - "v*"
 jobs:
