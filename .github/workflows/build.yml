@@ -13,6 +13,8 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version: '1.19'
+      - name: Test
+        run: go test
       - name: Build
         run: ./buildAll
       - name: Upload Build
