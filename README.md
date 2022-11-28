@@ -11,15 +11,6 @@ the [https://github.com/skiller-whale/learnerhost](hosted learner environment).
 
 ## Building
 
-The project is build through Gradle
+You can build the program with `go build` or use the `buildAll` script to build for all platforms.
 
-### Java version (using ordinary JDK)
-
-`./gradlew build`
-will output to `build/libs/SkillerWhale.jar`
-
-### Native version (using GraalVM installation)
-
-`./gradlew nativeCompile`
-will output to `build/native/nativeCompile/SkillerWhaleSync`
-
+`go test` should be pretty fast to make sure you've not broken anything.
