@@ -22,7 +22,7 @@ jobs:
         with:
           path: build
   release:
-    name: "Pre-release binary"
+    name: "Test and release"
     needs: build
     runs-on: ubuntu-latest
     steps:
