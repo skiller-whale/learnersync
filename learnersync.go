@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"math/rand"
@@ -51,6 +52,9 @@ func readFileMax(path string, max int) ([]byte, error) {
 	b := make([]byte, max)
 	n, err := file.Read(b)
 	if err != nil {
+		if err == io.EOF {
+			return []byte{}, nil
+		}
 		return nil, err
 	}
 	if n == max {
@@ -156,6 +160,10 @@ func (s *Sync) PostFile(path string) error {
 	if err != nil {
 		return err
 	}
+	if len(contents) == 0 {
+		log.Printf("Ignoring 0-length file %s", path)
+		return nil
+	}
 	body, err := json.Marshal(
 		struct {
 			RelativePath string `json:"relative_path"`
@@ -168,7 +176,7 @@ func (s *Sync) PostFile(path string) error {
 	if err != nil {
 		panic(err)
 	}
-	return s.postJSON("/file_snapshots", string(body))
+	return s.postJSON("file_snapshots", string(body))
 }
 
 func (s *Sync) WaitForFileUpdates() {
