@@ -1,9 +1,20 @@
-#!/bin/sh
-PREFIX=SkillerWhaleSync
+#!/bin/bash
+set -euo pipefail
 mkdir -p build
-for build in windows-amd64 linux-amd64 darwin-amd64 linux-arm64 darwin-arm64 ; do
-  export GOOS=`echo $build | cut -d- -f1`
-  export GOARCH=`echo $build | cut -d- -f2`
-  go build -o build/$PREFIX-$GOOS-$GOARCH
-done
-mv build/$PREFIX-windows-amd64 build/$PREFIX-windows-amd64.exe
+
+function build() { go build -o build/SkillerWhaleSync-$GOOS-$GOARCH${EXT}; }
+
+export GOOS=windows GOARCH=amd64 EXT=.exe
+build
+
+export GOOS=linux GOARCH=amd64 EXT=
+build
+
+export GOOS=linux GOARCH=arm64 EXT=
+build
+
+export GOOS=darwin GOARCH=amd64 EXT=
+build
+
+export GOOS=darwin GOARCH=arm64 EXT=
+build
