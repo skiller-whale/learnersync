@@ -4,6 +4,9 @@ mkdir -p build
 
 function build() { go build -o build/SkillerWhaleSync-$GOOS-$GOARCH${EXT}; }
 
+rm -f version.txt
+go generate
+
 export GOOS=windows GOARCH=amd64 EXT=.exe
 build
 

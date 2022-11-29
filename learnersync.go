@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -389,7 +390,12 @@ func InitFromEnv() (s Sync, err error) {
 	return s, err
 }
 
+//go:generate ./gen_version.sh
+//go:embed version.txt
+var Version string
+
 func main() {
+	log.Printf("SkillerWhaleSync %s", Version)
 	rand.NewSource(time.Now().UnixNano())
 	sync, err := InitFromEnv()
 	fatalIfSet(err)
