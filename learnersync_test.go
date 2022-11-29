@@ -3,11 +3,16 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
 	"testing"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 func TestIgnorable(t *testing.T) {
@@ -107,4 +112,25 @@ func TestHTTPFunctions(t *testing.T) {
 	}
 
 	// 0-length file should not cause a Post, how to test
+}
+
+func TestFSEvents(t *testing.T) {
+	dir := fmt.Sprintf("%s/testFsEvents.%d.%d", os.TempDir(), os.Getpid(), rand.Int())
+	fatalIfSet(os.Mkdir(dir, 0755))
+	defer os.RemoveAll(dir)
+	watcher, err := fsnotify.NewWatcher()
+	fatalIfSet(err)
+	watcher.Add(dir)
+	f, err := os.CreateTemp(dir, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-watcher.Events:
+		if event.Name == f.Name() {
+			return
+		}
+	case <-time.NewTicker(time.Second).C:
+		t.Fatalf("fsevents doesn't seem to work on this platform")
+	}
 }

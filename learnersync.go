@@ -101,10 +101,8 @@ func (s *Sync) Close() {
 func (s *Sync) ignorable(path string) bool {
 	for _, pattern := range s.Ignore {
 		matched, err := filepath.Match(pattern, path)
-		if matched || err != nil {
-			if err != nil {
-				panic(err) // shouldn't happen, we checked before storing it!
-			}
+		fatalIfSet(err)
+		if matched {
 			return true
 		}
 	}
@@ -173,9 +171,7 @@ func (s *Sync) PostFile(path string) error {
 			decodeBytes(contents),
 		},
 	)
-	if err != nil {
-		panic(err)
-	}
+	fatalIfSet(err)
 	return s.postJSON("file_snapshots", string(body))
 }
 
@@ -303,37 +299,34 @@ func (s *Sync) RunTriggers() {
 	}
 }
 
-func (s *Sync) readAttendanceIdFile() error {
+func (s *Sync) readAttendanceIdFile() (string, error) {
 	contents, err := readFileMax(s.AttendanceIdFile, 100)
 	if err != nil {
-		return err
+		return "", err
 	}
-	s.AttendanceId = regexp.MustCompile(`\s+`).ReplaceAllLiteralString(string(contents), "")
-	if err := s.PostPing(); err != nil {
-		s.AttendanceId = ""
-		return err
-	}
-	return nil
+	return regexp.MustCompile(`\s+`).ReplaceAllLiteralString(string(contents), ""), nil
 }
 
 func (s *Sync) WaitForAttendanceId() error {
-	if err := s.readAttendanceIdFile(); err == nil {
-		return nil
-	}
-	if err := s.watcher.Add(filepath.Dir(s.AttendanceIdFile)); err != nil {
-		return err
-	}
-	defer s.watcher.Remove(filepath.Dir(s.AttendanceIdFile))
-	for event := range s.watcher.Events {
-		if event.Has(fsnotify.Write) && event.Name == s.AttendanceIdFile {
-			if err := s.readAttendanceIdFile(); err != nil {
-				log.Printf("attendance_id rejected %s (%v)", s.AttendanceId, err)
-			} else {
+	log.Printf("Watching %s for valid attendance_id", s.AttendanceIdFile)
+	for {
+		// We poll because if this is a file mounted via Docker,
+		// inotify doesn't work.
+		newId, err := s.readAttendanceIdFile()
+		fatalIfSet(err)
+		if newId != s.AttendanceId {
+			s.AttendanceId = newId
+			switch s.PostPing() {
+			case CLIENT_ERROR:
+				continue
+			case nil:
 				return nil
+			default:
+				return err
 			}
 		}
+		time.Sleep(time.Second / 2)
 	}
-	panic("events channel closed")
 }
 
 func (s *Sync) Run() {
@@ -401,7 +394,6 @@ func main() {
 	sync, err := InitFromEnv()
 	fatalIfSet(err)
 	defer sync.Close()
-	log.Printf("Watching %s for valid attendance_id", sync.AttendanceIdFile)
 	if sync.AttendanceId == "" {
 		fatalIfSet(sync.WaitForAttendanceId())
 	} else {
