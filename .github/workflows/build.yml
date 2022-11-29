@@ -16,7 +16,7 @@ jobs:
       - name: Build
         run: ./buildAll
       - name: Test
-        run: go test
+        run: go generate && go test
       - name: Upload Build
         uses: actions/upload-artifact@v3
         with:
