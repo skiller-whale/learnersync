@@ -1,0 +1,23 @@
+#!/bin/bash
+set -euo pipefail
+mkdir -p build
+
+function build() { go build -o build/SkillerWhaleSync-$GOOS-$GOARCH${EXT}; }
+
+rm -f version.txt
+go generate
+
+export GOOS=windows GOARCH=amd64 EXT=.exe
+build
+
+export GOOS=linux GOARCH=amd64 EXT=
+build
+
+export GOOS=linux GOARCH=arm64 EXT=
+build
+
+export GOOS=darwin GOARCH=amd64 EXT=
+build
+
+export GOOS=darwin GOARCH=arm64 EXT=
+build
