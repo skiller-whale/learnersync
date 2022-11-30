@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -309,12 +310,35 @@ func (s *Sync) readAttendanceIdFile() (string, error) {
 }
 
 func (s *Sync) WaitForAttendanceId() error {
-	log.Printf("Watching %s for valid attendance_id", s.AttendanceIdFile)
-	for {
-		// We poll because if this is a file mounted via Docker,
-		// inotify doesn't work.
-		newId, err := s.readAttendanceIdFile()
-		fatalIfSet(err)
+	incomingId := make(chan string)
+	listener, err := net.Listen("tcp", ":9494")
+	if err != nil {
+		return err
+	}
+	go (&http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			if r.URL.Path != "/set" {
+				http.NotFound(w, r)
+			} else if q["id"] == nil || len(q["id"]) == 0 || q["redirect"] == nil || len(q["redirect"]) == 0 {
+				http.Error(w, "Must supply id and redirect parameters", 400)
+			} else {
+				incomingId <- q["id"][0]
+				http.Redirect(w, r, q["redirect"][0], 302)
+			}
+		}),
+	}).Serve(listener)
+	defer listener.Close()
+
+	log.Printf("Write attendance_id to local file %s or GET http://localhost:9494/set?id=xxxxxxx&redirect=skillerwhale.com", s.AttendanceIdFile)
+
+	for newId := ""; ; {
+		select {
+		case newId = <-incomingId:
+		case <-time.NewTimer(time.Second / 2).C:
+			newId, err = s.readAttendanceIdFile()
+			fatalIfSet(err)
+		}
 		if newId != s.AttendanceId {
 			s.AttendanceId = newId
 			switch s.PostPing() {
@@ -326,7 +350,6 @@ func (s *Sync) WaitForAttendanceId() error {
 				return err
 			}
 		}
-		time.Sleep(time.Second / 2)
 	}
 }
 
