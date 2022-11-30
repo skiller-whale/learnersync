@@ -1,5 +1,7 @@
 FROM debian:bookworm
 
+EXPOSE 9494
+
 ARG name=SkillerWhaleSync
 ARG version=0.1.2
 ARG osarch=linux-amd64
