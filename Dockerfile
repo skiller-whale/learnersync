@@ -1,4 +1,5 @@
 FROM debian:bookworm
+RUN apt update && apt -qq -y install ca-certificates
 
 EXPOSE 9494
 
