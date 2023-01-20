@@ -383,6 +383,11 @@ func InitFromEnv() (s Sync, err error) {
 		return s, err
 	}
 	s.fileUpdated = make(chan string)
+	_, err = httpClient.Get(s.ServerUrl)
+	if err != nil {
+		return s, err
+	}
+	// resp.StatusCode
 
 	if len(s.WatchedExts) == 0 {
 		return s, fmt.Errorf("WATCHED_EXTS not set")
