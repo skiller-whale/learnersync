@@ -147,6 +147,10 @@ func (s *Sync) postJSON(endpoint, data string) error {
 		return nil
 	}
 	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+		// log response body
+		defer resp.Body.Close()
+		body, _ := ioutil.ReadAll(resp.Body)
+		log.Printf("We tried to post %d bytes to %s but server gave us status %d and body \"%s\"", len(data), endpoint, resp.StatusCode, body[0:100])
 		return CLIENT_ERROR
 	}
 	return SERVER_ERROR
