@@ -438,6 +438,6 @@ func main() {
 	} else {
 		fatalIfSet(sync.PostPing())
 	}
-	log.Printf("Starting with attendance_id=%s", sync.AttendanceId)
+	log.Println("Valid attendance_id", sync.AttendanceId)
 	sync.Run()
 }
