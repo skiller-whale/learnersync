@@ -24,7 +24,8 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-const MAX_UPLOAD_BYTES = 10000000
+const MAX_UPLOAD_BYTES = 2000000
+
 const SEND_AFTER_MILLIS = 100
 const PING_EVERY_MILLIS = 2000
 const PING_WARNING_MILLIS = 5000
