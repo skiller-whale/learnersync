@@ -1,9 +1,5 @@
 name: Build and package
-on:
-  push:
-    branches: [main, go-rewrite]
-    tags:
-      - "v*"
+on: push
 jobs:
   build:
     name: SkillerWhaleSync
