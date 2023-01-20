@@ -249,8 +249,8 @@ func (s *Sync) PostFileUpdates() {
 				retries: 0,
 			}
 		case <-nextfileChannel:
+			log.Printf("Posting %s", nextFile)
 			if err := s.PostFile(nextFile); err == nil {
-				log.Printf("Posted %s", nextFile)
 				delete(filesToPostTimes, nextFile)
 				if s.filePosted != nil {
 					s.filePosted <- nextFile
