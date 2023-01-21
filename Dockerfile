@@ -4,7 +4,7 @@ RUN apt update && apt -qq -y install ca-certificates
 EXPOSE 9494
 
 ARG name=SkillerWhaleSync
-ARG version=0.1.2
+ARG version=latest
 ARG TARGETOS
 ENV TARGETOS=${TARGETOS:-linux}
 ARG TARGETARCH
@@ -13,7 +13,7 @@ ENV TARGETARCH=${TARGETARCH:-amd64}
 # RUN apt update && apt -qq -y install curl
 RUN rm /bin/sh && ln -s /bin/bash /bin/sh
 
-ADD https://github.com/skiller-whale/learnersync/releases/download/v${version}/${name}-${TARGETOS}-${TARGETARCH} /usr/local/bin/${name}
+ADD https://github.com/skiller-whale/learnersync/releases/download/${version}/${name}-${TARGETOS}-${TARGETARCH} /usr/local/bin/${name}
 # in development: COPY SkillerWhaleSync-linux-amd64 /usr/local/bin/SkillerWhaleSync
 RUN chmod +x /usr/local/bin/$name
 
