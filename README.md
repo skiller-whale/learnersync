@@ -1,5 +1,4 @@
-File synchronisation client for Skiller Whale learners
-======================================================
+# File synchronisation client for Skiller Whale learners
 
 This program synchronises files up to Skiller Whale as part of a live coaching
 session.
@@ -11,6 +10,31 @@ It is usually set up by curriculum maintainers with docker or integrated into
 the [https://github.com/skiller-whale/learnerhost](hosted learner environment),
 so this explanation isn't written for learners!
 
+## Simple integration
+
+For curriculum authors, you add synchronisation to your curriculum by
+including this service in its docker-compose.yml:
+
+```yaml
+  sync:
+    image: "ghcr.io/skiller-whale/learnersync"
+    network_mode: "host"
+    environment:
+      WATCHER_BASE_PATH: "/app/exercises"
+      ATTENDANCE_ID_FILE: "/app/sync/attendance_id"
+      WATCHED_EXTS: "js jsx ts tsx html"
+      IGNORE_DIRS: ".git"
+    volumes:
+      - "./src:/app/exercises/src"
+      - "./attendance_id:/app/sync/attendance_id"
+    tty: true
+    stdin_open: true
+```
+
+This should always reference the latest-tested Docker image.
+
+If you need to test pre-release versions, you can add change the image
+argument to e.g. `gchr.io/skiller-whale/learnersync:pre-release-branch`.
 
 ## Building
 

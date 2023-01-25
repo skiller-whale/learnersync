@@ -1,8 +1,8 @@
-name: Build and package
+name: Test, build, release
 on: push
 jobs:
   build:
-    name: SkillerWhaleSync
+    name: "Test and build"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -18,7 +18,7 @@ jobs:
         with:
           path: build
   release:
-    name: "Test and release"
+    name: Release
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -26,16 +26,18 @@ jobs:
         name: Download build
       - name: Display fetched artifacts
         run: ls -R
+      # Release tags that aren't v... are pre-release, named after their branch
       - if: "!startsWith(github.ref, 'refs/tags/v')"
         name: Create pre-release from main
         uses: "marvinpinto/action-automatic-releases@latest"
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "latest"
+          automatic_release_tag: "${{ github.ref_name }}"
           prerelease: true
           title: "Development Build"
           files: |
             artifact/SkillerWhaleSync-*
+      # Release tags starting v... are releases, named as per the tag
       - if: "startsWith(github.ref, 'refs/tags/v')"
         name: Create tagged release
         uses: "marvinpinto/action-automatic-releases@latest"
