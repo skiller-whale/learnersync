@@ -1,8 +1,5 @@
-name: Create and publish a Docker image
-
-on:
-  push:
-    branches: ['main']
+name: Build and publish a Docker image
+on: push
 
 env:
   REGISTRY: ghcr.io
@@ -37,10 +34,16 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=ref,event=branch
+            type=sha
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v3
         with:
+          build-args: |
+            release=${{ github.ref_name }}
           context: .
           platforms: linux/amd64, linux/arm64
           push: true

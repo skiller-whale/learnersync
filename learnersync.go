@@ -5,9 +5,11 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
@@ -24,10 +26,12 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-const MAX_UPLOAD_BYTES = 10000000
+const MAX_UPLOAD_BYTES = 2000000
+
 const SEND_AFTER_MILLIS = 100
 const PING_EVERY_MILLIS = 2000
 const PING_WARNING_MILLIS = 5000
+const POLL_INTERVAL_MILLIS = 2500
 const MAX_RETRY_DELAY = 30000
 const MAX_TRIGGER_TIME = 2500
 
@@ -82,6 +86,40 @@ func decodeBytes(b []byte) string {
 	return string(b) // will soldier on in case of bad encoding
 }
 
+type WatchedFiles map[string]time.Time
+
+func ScanForFiles(dir string, ignoreFilter func(filename string) bool, matchFilter func(filename string) bool) (WatchedFiles, error) {
+	w := make(WatchedFiles)
+
+	return w, filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			log.Printf("%v ignored while traversing %s", err, path)
+			return nil
+		} else if entry.IsDir() {
+			if ignoreFilter(path) {
+				return filepath.SkipDir
+			}
+		} else if entry.Type().IsRegular() && !ignoreFilter(path) && matchFilter(path) {
+			if info, err := entry.Info(); err == nil {
+				w[path] = info.ModTime()
+			} else {
+				log.Printf("%v ignored while reading info for %s", err, path)
+			}
+		}
+		return nil
+	})
+}
+
+func (w WatchedFiles) AddedOrChanged(prev WatchedFiles) (o []string) {
+	o = make([]string, 0)
+	for path, updated := range w {
+		if prev[path].IsZero() || updated.After(prev[path]) {
+			o = append(o, path)
+		}
+	}
+	return o
+}
+
 type Sync struct {
 	ServerUrl        string   `env:"SERVER_URL"         envDefault:"https://train.skillerwhale.com"`
 	AttendanceIdFile string   `env:"ATTENDANCE_ID_FILE" envDefault:"attendance_id"`
@@ -90,10 +128,23 @@ type Sync struct {
 	Ignore           []string `env:"IGNORE_MATCH"       envSeparator:" ""`
 	WatchedExts      []string `env:"WATCHED_EXTS"       envSeparator:" ""`
 	AttendanceId     string   `env:"ATTENDANCE_ID"`
+	ForcePoll        bool     `env:"FORCE_POLL"`
 
-	watcher     *fsnotify.Watcher
+	watcher *fsnotify.Watcher
+
+	noPollSignal chan struct{}
+
 	fileUpdated chan string
 	filePosted  chan string
+}
+
+func (s *Sync) MatchesExts(path string) bool {
+	for _, ext := range s.WatchedExts {
+		if strings.HasSuffix(path, "."+ext) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Sync) Close() {
@@ -146,6 +197,10 @@ func (s *Sync) postJSON(endpoint, data string) error {
 		return nil
 	}
 	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+		// log response body
+		defer resp.Body.Close()
+		body, _ := ioutil.ReadAll(resp.Body)
+		log.Printf("We tried to post %d bytes to %s but server gave us status %d and body \"%s\"", len(data), endpoint, resp.StatusCode, body[0:100])
 		return CLIENT_ERROR
 	}
 	return SERVER_ERROR
@@ -185,6 +240,11 @@ func (s *Sync) WaitForFileUpdates() {
 				panic("watcher.Events channel closed unexpectedly")
 			}
 			if event.Has(fsnotify.Write) {
+				if s.noPollSignal != nil {
+					s.noPollSignal <- struct{}{}
+					s.noPollSignal = nil
+				}
+
 				fileInfo, err := os.Stat(event.Name)
 				if err != nil {
 					log.Printf("ignoring change to %s due to %v", event.Name, err)
@@ -192,11 +252,8 @@ func (s *Sync) WaitForFileUpdates() {
 					if fileInfo.IsDir() {
 						s.WatchDirectory(event.Name)
 					} else if fileInfo.Mode().IsRegular() {
-						for _, ext := range s.WatchedExts {
-							if strings.HasSuffix(event.Name, "."+ext) {
-								s.fileUpdated <- event.Name
-								break
-							}
+						if s.MatchesExts(event.Name) {
+							s.fileUpdated <- event.Name
 						}
 					}
 				}
@@ -206,6 +263,31 @@ func (s *Sync) WaitForFileUpdates() {
 				panic("watcher.Errors channel closed unexpectedly")
 			}
 			log.Println("error:", err)
+		}
+	}
+}
+
+func (s *Sync) PollForFileUpdates() {
+	var prev WatchedFiles
+	for {
+		cur, err := ScanForFiles(s.Base, s.ignorable, s.MatchesExts)
+		if err != nil {
+			log.Println("Error scanning for files:", err)
+		}
+		if prev != nil {
+			for _, f := range cur.AddedOrChanged(prev) {
+				s.fileUpdated <- f
+			}
+		} else {
+			log.Println("Now watching", s.Base, "for changes to files with extensions", s.WatchedExts, "which contains", len(cur), "matching files on startup")
+		}
+		prev = cur
+		time.Sleep(POLL_INTERVAL_MILLIS * time.Millisecond)
+		select {
+		case <-s.noPollSignal:
+			log.Println("Polling disabled because we're getting fsnotify events")
+			return
+		default:
 		}
 	}
 }
@@ -244,8 +326,8 @@ func (s *Sync) PostFileUpdates() {
 				retries: 0,
 			}
 		case <-nextfileChannel:
+			log.Printf("Posting %s", nextFile)
 			if err := s.PostFile(nextFile); err == nil {
-				log.Printf("Posted %s", nextFile)
 				delete(filesToPostTimes, nextFile)
 				if s.filePosted != nil {
 					s.filePosted <- nextFile
@@ -330,14 +412,15 @@ func (s *Sync) WaitForAttendanceId() error {
 	}).Serve(listener)
 	defer listener.Close()
 
-	log.Printf("Write attendance_id to local file %s or GET http://localhost:9494/set?id=xxxxxxx&redirect=skillerwhale.com", s.AttendanceIdFile)
-
+	var prompted bool
 	for newId := ""; ; {
 		select {
 		case newId = <-incomingId:
 		case <-time.NewTimer(time.Second / 2).C:
 			newId, err = s.readAttendanceIdFile()
-			fatalIfSet(err)
+			if !errors.Is(err, fs.ErrNotExist) {
+				fatalIfSet(err)
+			}
 		}
 		if newId != s.AttendanceId {
 			s.AttendanceId = newId
@@ -349,6 +432,10 @@ func (s *Sync) WaitForAttendanceId() error {
 			default:
 				return err
 			}
+		}
+		if !prompted {
+			log.Printf("Write attendance_id to local file %s or GET http://localhost:9494/set?id=xxxxxxx&redirect=https://skillerwhale.com/", s.AttendanceIdFile)
+			prompted = true
 		}
 	}
 }
@@ -365,7 +452,10 @@ func (s *Sync) Run() {
 			time.Sleep(time.Duration(PING_EVERY_MILLIS) * time.Millisecond)
 		}
 	})
-	runIt(s.WaitForFileUpdates)
+	runIt(s.PollForFileUpdates)
+	if !s.ForcePoll {
+		runIt(s.WaitForFileUpdates)
+	}
 	runIt(s.PostFileUpdates)
 	if s.TriggerExec != "" {
 		runIt(s.RunTriggers)
@@ -378,6 +468,17 @@ func InitFromEnv() (s Sync, err error) {
 		return s, err
 	}
 	s.fileUpdated = make(chan string)
+	s.noPollSignal = make(chan struct{})
+
+	if s.Base, err = filepath.Abs(s.Base); err != nil {
+		return s, err
+	}
+
+	_, err = httpClient.Get(s.ServerUrl)
+	if err != nil {
+		return s, err
+	}
+	// resp.StatusCode
 
 	if len(s.WatchedExts) == 0 {
 		return s, fmt.Errorf("WATCHED_EXTS not set")
@@ -402,12 +503,13 @@ func InitFromEnv() (s Sync, err error) {
 			return s, err
 		}
 	}
-	if s.Base, err = filepath.Abs(s.Base); err != nil {
-		return s, err
-	}
 
-	if err := s.WatchDirectory(s.Base); err != nil {
-		return s, err
+	if !s.ForcePoll {
+		if err := s.WatchDirectory(s.Base); err != nil {
+			return s, err
+		}
+	} else {
+		log.Println("Forced polling mode, will not try to listen for filesystem events")
 	}
 
 	return s, err
@@ -428,6 +530,6 @@ func main() {
 	} else {
 		fatalIfSet(sync.PostPing())
 	}
-	log.Printf("Starting with attendance_id=%s", sync.AttendanceId)
+	log.Println("Valid attendance_id", sync.AttendanceId)
 	sync.Run()
 }
