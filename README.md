@@ -6,14 +6,14 @@ session.
 SkillerWhaleSync scans for changes on a local filesystem and posts them up to
 Skiller Whale for a coach to view during a session.
 
-It is usually set up by curriculum maintainers with docker or integrated into
+It is usually set up by curriculum maintainers with Docker or integrated into
 the [https://github.com/skiller-whale/learnerhost](hosted learner environment),
 so this explanation isn't written for learners!
 
 ## Simple integration
 
 For curriculum authors, you add synchronisation to your curriculum by
-including this service in its docker-compose.yml:
+including this service in its `docker-compose.yml`:
 
 ```yaml
   sync:
@@ -44,13 +44,15 @@ You can build the program with `go build` or use the `buildAll` script to build 
 
 ## Supplying the attendance id
 
-Each learner in a coaching session is given an "attendance id", a random number which they need to pass on
-to SkillerWhaleSync.  The program provides three ways of doing this:
+Each learner in a coaching session is given an "Attendance ID" on the screen.
+This is a UUID which they need to pass on to SkillerWhaleSync in order for it to integrate
+with the training platform.
 
-1. manually writing it to a file in the exercise folder usually called `attendance_id`
-2. starting the program with the ATTENDANCE_ID parameter (the hosted learner environment does this)
-3. issuing an HTTP GET to `http://localhost:9494/set?id=...&redirect=...` - an experimental half-way house
-   for train to use.
+The program provides three ways of doing this:
+
+1. manually writing it to a file in the exercise folder called `attendance_id`,
+2. starting the program with the ATTENDANCE_ID environment variable, or
+3. issuing an HTTP GET to `http://localhost:9494/set?id=...&redirect=...`.
 
 ## Polling vs inotify
 
@@ -68,9 +70,19 @@ The program is configured through environment variables, only the first of which
 
 * **WATCHED_EXTS**: Space-separated list of file extensions to monitor, all others are ignored e.g. `js ts`.
 * **IGNORE_MATCH**: A space-separated list of patterns to ignore in the full pathname e.g. `.git .DS_Store *.class`.
-* **SERVER_URL**: The URL of the server which has `/pings` and `/file_snapshots` endpoints, defaults to `https://train.skillerwhale.com`.
+* **SERVER_URL**: The URL of the server which has `/pings` and `/file_snapshots` endpoints, defaults to `https://train.skillerwhale.com`. If you set to DISABLED the program will only log what it would do and not touch the network.
 * **ATTENDANCE_ID_FILE**: The file in which the user will write their session "attendance_id" supplied by the training interface to identify a particular learner. The program will not start until a valid ID is written to this file.
 * **ATTENDANCE_ID**: Alternatively, you can supply the ID directly and the program will quit if it's not valid.
 * **WATCHED_BASE_PATH**: The directory to monitor for file changes (defaults to `.`).
 * **TRIGGER_EXEC**: A trigger program to run on every file change with the full pathname as its argument.
 * **FORCE_POLL**: Set to "1" to disable inotify usage on the host.
+
+There is a **DEBUG** environment variable which you can set various space-separated debug options:
+
+* **fsevents** - log events related to the kernel polling API
+* **fspoll** - log events related to periodic polling
+* **http** - log HTTP transactions
+* **nopings** - disable periodic POSTs to `/ping`
+* **quiet** - suppress all but fatal error output
+
+(these are mostly used by the test program)
