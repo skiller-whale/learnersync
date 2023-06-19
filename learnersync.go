@@ -306,16 +306,25 @@ func (s *Sync) WaitForFileUpdates() {
 					s.noPollSignal = nil
 				}
 
+			if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
+				// FIXME: I can't make watcher.Remove() work, does this leak memory?
+				break
+			}
+
 				fileInfo, err := os.Stat(event.Name)
 				if err != nil {
-					log.Printf("ignoring change to %s due to %v", event.Name, err)
-				} else {
+				s.Logf("ignoring change to %s due to %v", event.Name, err)
+				break
+			}
+
+			if event.Has(fsnotify.Create) {
 					if fileInfo.IsDir() {
 						s.WatchDirectory(event.Name)
-					} else if fileInfo.Mode().IsRegular() {
+				}
+			} else if event.Has(fsnotify.Write) {
+				if fileInfo.Mode().IsRegular() {
 						if s.MatchesExts(event.Name) {
 							s.fileUpdated <- event.Name
-						}
 					}
 				}
 			}
