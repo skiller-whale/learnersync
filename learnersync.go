@@ -88,12 +88,12 @@ func decodeBytes(b []byte) string {
 
 type WatchedFiles map[string]time.Time
 
-func ScanForFiles(dir string, ignoreFilter func(filename string) bool, matchFilter func(filename string) bool) (WatchedFiles, error) {
+func (s *Sync) ScanForFiles(dir string, ignoreFilter func(filename string) bool, matchFilter func(filename string) bool) (WatchedFiles, error) {
 	w := make(WatchedFiles)
 
 	return w, filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
-			log.Printf("%v ignored while traversing %s", err, path)
+			s.Logf("%v ignored while traversing %s", err, path)
 			return nil
 		} else if entry.IsDir() {
 			if ignoreFilter(path) {
@@ -103,7 +103,7 @@ func ScanForFiles(dir string, ignoreFilter func(filename string) bool, matchFilt
 			if info, err := entry.Info(); err == nil {
 				w[path] = info.ModTime()
 			} else {
-				log.Printf("%v ignored while reading info for %s", err, path)
+				s.Logf("%v ignored while reading info for %s", err, path)
 			}
 		}
 		return nil
@@ -129,13 +129,51 @@ type Sync struct {
 	WatchedExts      []string `env:"WATCHED_EXTS"       envSeparator:" ""`
 	AttendanceId     string   `env:"ATTENDANCE_ID"`
 	ForcePoll        bool     `env:"FORCE_POLL"`
+	DebugFlags       []string `env:"DEBUG"              envSeparator:" "`
 
 	watcher *fsnotify.Watcher
 
 	noPollSignal chan struct{}
 
-	fileUpdated chan string
-	filePosted  chan string
+func DebugFlags() []string {
+	return []string{"fsevents", "fspoll", "http", "nopings", "quiet"}
+}
+
+func (s *Sync) IsServerDisabled() bool {
+	return s.ServerUrl == "DISABLED"
+}
+
+func (s *Sync) IsDebugOn(flag string) bool {
+	for _, f := range s.DebugFlags {
+		if f == flag {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Sync) Log(args ...any) {
+	if !s.IsDebugOn("quiet") {
+		log.Print(args...)
+	}
+}
+
+func (s *Sync) Logf(format string, args ...any) {
+	if !s.IsDebugOn("quiet") {
+		log.Printf(format, args...)
+	}
+}
+
+func (s *Sync) Debug(flag string, args ...any) {
+	if s.IsDebugOn(flag) {
+		log.Print(args...)
+	}
+}
+
+func (s *Sync) Debugf(flag string, format string, args ...any) {
+	if s.IsDebugOn(flag) {
+		log.Printf(format, args...)
+	}
 }
 
 func (s *Sync) MatchesExts(path string) bool {
@@ -165,13 +203,15 @@ func (s *Sync) ignorable(path string) bool {
 func (s *Sync) WatchDirectory(pathBase string) error {
 	return filepath.WalkDir(pathBase, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			log.Printf("%v ignored while traversing %s", err, path)
+			s.Logf("%v ignored while traversing %s", err, path)
 			return nil
 		} else if d.IsDir() {
 			if s.ignorable(path) {
 				return filepath.SkipDir
 			} else {
+				s.Debug("fsevents", "watcher add directory:", path)
 				if err := s.watcher.Add(path); err != nil {
+					s.Log("ERROR watcher add directory", path, err)
 					return err
 				}
 			}
@@ -189,6 +229,13 @@ const SERVER_ERROR = Error("server not working")
 
 func (s *Sync) postJSON(endpoint, data string) error {
 	url := s.ServerUrl + "/attendances/" + s.AttendanceId + "/" + endpoint
+
+	if s.IsServerDisabled() {
+		s.Logf("Not posting %s - %d bytes", url, len(data))
+		return nil
+	}
+
+	s.Debugf("http", "POST %s %d bytes", url, len(data))
 	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(([]byte)(data)))
 	if err != nil {
 		return err
@@ -200,7 +247,7 @@ func (s *Sync) postJSON(endpoint, data string) error {
 		// log response body
 		defer resp.Body.Close()
 		body, _ := ioutil.ReadAll(resp.Body)
-		log.Printf("We tried to post %d bytes to %s but server gave us status %d and body \"%s\"", len(data), endpoint, resp.StatusCode, body[0:100])
+		s.Logf("We tried to post %d bytes to %s but server gave us status %d and body \"%s\"", len(data), endpoint, resp.StatusCode, body[0:100])
 		return CLIENT_ERROR
 	}
 	return SERVER_ERROR
@@ -216,7 +263,7 @@ func (s *Sync) PostFile(path string) error {
 		return err
 	}
 	if len(contents) == 0 {
-		log.Printf("Ignoring 0-length file %s", path)
+		s.Logf("Ignoring 0-length file %s", path)
 		return nil
 	}
 	body, err := json.Marshal(
@@ -239,7 +286,7 @@ func (s *Sync) WaitForFileUpdates() {
 			if !ok {
 				panic("watcher.Events channel closed unexpectedly")
 			}
-			if event.Has(fsnotify.Write) {
+			s.Debugf("fsevents", "watcher event: %v", event)
 				if s.noPollSignal != nil {
 					s.noPollSignal <- struct{}{}
 					s.noPollSignal = nil
@@ -270,22 +317,21 @@ func (s *Sync) WaitForFileUpdates() {
 func (s *Sync) PollForFileUpdates() {
 	var prev WatchedFiles
 	for {
-		cur, err := ScanForFiles(s.Base, s.ignorable, s.MatchesExts)
+		cur, err := s.ScanForFiles(s.Base, s.ignorable, s.MatchesExts)
 		if err != nil {
-			log.Println("Error scanning for files:", err)
+			s.Log("Error scanning for files:", err)
 		}
 		if prev != nil {
 			for _, f := range cur.AddedOrChanged(prev) {
 				s.fileUpdated <- f
 			}
 		} else {
-			log.Println("Now watching", s.Base, "for changes to files with extensions", s.WatchedExts, "which contains", len(cur), "matching files on startup")
+			s.Log("Now watching", s.Base, "for changes to files with extensions", s.WatchedExts, "which contains", len(cur), "matching files on startup")
 		}
 		prev = cur
-		time.Sleep(POLL_INTERVAL_MILLIS * time.Millisecond)
 		select {
 		case <-s.noPollSignal:
-			log.Println("Polling disabled because we're getting fsnotify events")
+			s.Log("Polling disabled because we're getting fsnotify events")
 			return
 		default:
 		}
@@ -326,7 +372,7 @@ func (s *Sync) PostFileUpdates() {
 				retries: 0,
 			}
 		case <-nextfileChannel:
-			log.Printf("Posting %s", nextFile)
+			s.Logf("Posting %s", nextFile)
 			if err := s.PostFile(nextFile); err == nil {
 				delete(filesToPostTimes, nextFile)
 				if s.filePosted != nil {
@@ -338,12 +384,12 @@ func (s *Sync) PostFileUpdates() {
 					log.Fatal("Server has invalidated our attendance_id")
 				case TOO_LARGE_ERROR:
 					delete(filesToPostTimes, nextFile)
-					log.Println("Giving up on", nextFile+":", err)
+					s.Log("Giving up on", nextFile+":", err)
 				default:
 					// retry
 					v := filesToPostTimes[nextFile]
 					if v.retries == 5 {
-						log.Printf("Gave up posting %s (%v)", nextFile, err)
+						s.Logf("Gave up posting %s (%v)", nextFile, err)
 						delete(filesToPostTimes, nextFile)
 						return
 					}
@@ -377,7 +423,7 @@ func (s *Sync) RunTriggers() {
 			}()
 		case f := <-finishers:
 			if f.err != nil {
-				log.Printf("trigger %v failed (%v)", f.c.Args, f.err)
+				s.Logf("trigger %v failed (%v)", f.c.Args, f.err)
 			}
 		}
 	}
@@ -434,7 +480,7 @@ func (s *Sync) WaitForAttendanceId() error {
 			}
 		}
 		if !prompted {
-			log.Printf("Write attendance_id to local file %s or GET http://localhost:9494/set?id=xxxxxxx&redirect=https://skillerwhale.com/", s.AttendanceIdFile)
+			s.Logf("Write attendance_id to local file %s or GET http://localhost:9494/set?id=xxxxxxx&redirect=https://skillerwhale.com/", s.AttendanceIdFile)
 			prompted = true
 		}
 	}
@@ -467,6 +513,17 @@ func InitFromEnv() (s Sync, err error) {
 	if err = env.Parse(&s); err != nil {
 		return s, err
 	}
+
+nextFlag:
+	for _, f := range s.DebugFlags {
+		for _, g := range DebugFlags() {
+			if f == g {
+				continue nextFlag
+			}
+		}
+		return s, fmt.Errorf("unknown debug flag %s", f)
+	}
+
 	s.fileUpdated = make(chan string)
 	s.noPollSignal = make(chan struct{})
 
@@ -509,7 +566,7 @@ func InitFromEnv() (s Sync, err error) {
 			return s, err
 		}
 	} else {
-		log.Println("Forced polling mode, will not try to listen for filesystem events")
+		s.Log("Forced polling mode, will not try to listen for filesystem events")
 	}
 
 	return s, err
