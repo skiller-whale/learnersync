@@ -349,7 +349,7 @@ func (s *Sync) PollForFileUpdates() {
 		case <-s.noPollSignal:
 			s.Log("Polling disabled because we're getting fsnotify events")
 			return
-		default:
+		case <-time.NewTimer(POLL_INTERVAL_MILLIS * time.Millisecond).C:
 		}
 	}
 }
