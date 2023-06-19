@@ -227,6 +227,8 @@ func (s *Sync) WatchDirectory(pathBase string) error {
 					return err
 				}
 			}
+		} else if d.Type().IsRegular() && !s.ignorable(path) && s.MatchesExts(path) {
+			s.fileUpdated <- path
 		}
 		return nil
 	})
@@ -301,30 +303,30 @@ func (s *Sync) WaitForFileUpdates() {
 				panic("watcher.Events channel closed unexpectedly")
 			}
 			s.Debugf("fsevents", "watcher event: %v", event)
-				if s.noPollSignal != nil {
-					s.noPollSignal <- struct{}{}
-					s.noPollSignal = nil
-				}
+			if s.noPollSignal != nil {
+				s.noPollSignal <- struct{}{}
+				s.noPollSignal = nil
+			}
 
 			if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
 				// FIXME: I can't make watcher.Remove() work, does this leak memory?
 				break
 			}
 
-				fileInfo, err := os.Stat(event.Name)
-				if err != nil {
+			fileInfo, err := os.Stat(event.Name)
+			if err != nil {
 				s.Logf("ignoring change to %s due to %v", event.Name, err)
 				break
 			}
 
 			if event.Has(fsnotify.Create) {
-					if fileInfo.IsDir() {
-						s.WatchDirectory(event.Name)
+				if fileInfo.IsDir() {
+					s.WatchDirectory(event.Name)
 				}
 			} else if event.Has(fsnotify.Write) {
 				if fileInfo.Mode().IsRegular() {
-						if s.MatchesExts(event.Name) {
-							s.fileUpdated <- event.Name
+					if s.MatchesExts(event.Name) {
+						s.fileUpdated <- event.Name
 					}
 				}
 			}
@@ -522,12 +524,12 @@ func (s *Sync) Run() {
 		go func() { defer wg.Done(); doIt() }()
 	}
 	if !s.IsDebugOn("nopings") {
-	runIt(func() {
-		for {
-			fatalIfSet(s.PostPing())
-			time.Sleep(time.Duration(PING_EVERY_MILLIS) * time.Millisecond)
-		}
-	})
+		runIt(func() {
+			for {
+				fatalIfSet(s.PostPing())
+				time.Sleep(time.Duration(PING_EVERY_MILLIS) * time.Millisecond)
+			}
+		})
 	}
 	runIt(s.PollForFileUpdates)
 	if !s.ForcePoll {
@@ -567,11 +569,11 @@ nextFlag:
 	}
 
 	if !s.IsServerDisabled() {
-	_, err = httpClient.Get(s.ServerUrl)
-	if err != nil {
-		return s, err
-	}
-	// resp.StatusCode
+		_, err = httpClient.Get(s.ServerUrl)
+		if err != nil {
+			return s, err
+		}
+		// resp.StatusCode
 	} else {
 		s.AttendanceId = "attendance_id"
 	}
@@ -622,11 +624,11 @@ func main() {
 	fatalIfSet(err)
 	defer sync.Close()
 	if sync.IsServerDisabled() {
-	if sync.AttendanceId == "" {
-		fatalIfSet(sync.WaitForAttendanceId())
-	} else {
-		fatalIfSet(sync.PostPing())
-	}
+		if sync.AttendanceId == "" {
+			fatalIfSet(sync.WaitForAttendanceId())
+		} else {
+			fatalIfSet(sync.PostPing())
+		}
 		sync.Log("Valid attendance_id", sync.AttendanceId)
 	}
 	sync.Run()

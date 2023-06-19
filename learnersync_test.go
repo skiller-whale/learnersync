@@ -152,3 +152,22 @@ func TestHTTPFunctions(t *testing.T) {
 
 	// 0-length file should not cause a Post, how to test
 }
+
+func TestMkdirAll(t *testing.T) {
+	rig := initRig(t)
+
+	subPath := os.Getenv("WATCHER_BASE_PATH") + "/1/2/3/4"
+	os.MkdirAll(subPath, 0777)
+	foo, err := os.Create(subPath + "/test.txt")
+	if err != nil {
+		panic(err)
+	}
+	foo.Write([]byte("Testing file write"))
+	foo.Close()
+
+	chr := rig.nextRequest()
+	var fub fileUploadBody
+	if err := fub.parse(chr.body); err != nil {
+		t.Fatal("couldn't decode json request", err)
+	}
+}
