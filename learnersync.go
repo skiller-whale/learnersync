@@ -134,6 +134,15 @@ type Sync struct {
 	watcher *fsnotify.Watcher
 
 	noPollSignal chan struct{}
+	fileUpdated  chan string
+	filePosted   chan string
+	stopSignal   struct {
+		WaitForFileUpdates chan struct{}
+		PollForFileUpdates chan struct{}
+		PostFileUpdates    chan struct{}
+		RunTriggers        chan struct{}
+	}
+}
 
 func DebugFlags() []string {
 	return []string{"fsevents", "fspoll", "http", "nopings", "quiet"}
@@ -186,7 +195,10 @@ func (s *Sync) MatchesExts(path string) bool {
 }
 
 func (s *Sync) Close() {
-	s.watcher.Close()
+	s.stopSignal.WaitForFileUpdates <- struct{}{}
+	s.stopSignal.PollForFileUpdates <- struct{}{}
+	s.stopSignal.PostFileUpdates <- struct{}{}
+	s.stopSignal.RunTriggers <- struct{}{}
 }
 
 func (s *Sync) ignorable(path string) bool {
@@ -282,6 +294,8 @@ func (s *Sync) PostFile(path string) error {
 func (s *Sync) WaitForFileUpdates() {
 	for {
 		select {
+		case <-s.stopSignal.WaitForFileUpdates:
+			return
 		case event, ok := <-s.watcher.Events:
 			if !ok {
 				panic("watcher.Events channel closed unexpectedly")
@@ -330,6 +344,8 @@ func (s *Sync) PollForFileUpdates() {
 		}
 		prev = cur
 		select {
+		case <-s.stopSignal.PollForFileUpdates:
+			return
 		case <-s.noPollSignal:
 			s.Log("Polling disabled because we're getting fsnotify events")
 			return
@@ -363,6 +379,8 @@ func (s *Sync) PostFileUpdates() {
 		}
 
 		select {
+		case <-s.stopSignal.PostFileUpdates:
+			return
 		case updatedFile, ok := <-s.fileUpdated:
 			if !ok {
 				panic("fileUpdated channel closed unexpectedly")
@@ -411,6 +429,8 @@ func (s *Sync) RunTriggers() {
 	finishers := make(chan finisher)
 	for {
 		select {
+		case <-s.stopSignal.RunTriggers:
+			return
 		case file, ok := <-s.filePosted:
 			if !ok {
 				panic("filePosted channel closed unexpectedly")
@@ -526,6 +546,10 @@ nextFlag:
 
 	s.fileUpdated = make(chan string)
 	s.noPollSignal = make(chan struct{})
+	s.stopSignal.WaitForFileUpdates = make(chan struct{}, 1)
+	s.stopSignal.PollForFileUpdates = make(chan struct{}, 1)
+	s.stopSignal.PostFileUpdates = make(chan struct{}, 1)
+	s.stopSignal.RunTriggers = make(chan struct{}, 1)
 
 	if s.Base, err = filepath.Abs(s.Base); err != nil {
 		return s, err
