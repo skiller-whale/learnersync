@@ -512,12 +512,14 @@ func (s *Sync) Run() {
 		wg.Add(1)
 		go func() { defer wg.Done(); doIt() }()
 	}
+	if !s.IsDebugOn("nopings") {
 	runIt(func() {
 		for {
 			fatalIfSet(s.PostPing())
 			time.Sleep(time.Duration(PING_EVERY_MILLIS) * time.Millisecond)
 		}
 	})
+	}
 	runIt(s.PollForFileUpdates)
 	if !s.ForcePoll {
 		runIt(s.WaitForFileUpdates)
@@ -555,11 +557,15 @@ nextFlag:
 		return s, err
 	}
 
+	if !s.IsServerDisabled() {
 	_, err = httpClient.Get(s.ServerUrl)
 	if err != nil {
 		return s, err
 	}
 	// resp.StatusCode
+	} else {
+		s.AttendanceId = "attendance_id"
+	}
 
 	if len(s.WatchedExts) == 0 {
 		return s, fmt.Errorf("WATCHED_EXTS not set")
@@ -606,11 +612,13 @@ func main() {
 	sync, err := InitFromEnv()
 	fatalIfSet(err)
 	defer sync.Close()
+	if sync.IsServerDisabled() {
 	if sync.AttendanceId == "" {
 		fatalIfSet(sync.WaitForAttendanceId())
 	} else {
 		fatalIfSet(sync.PostPing())
 	}
-	log.Println("Valid attendance_id", sync.AttendanceId)
+		sync.Log("Valid attendance_id", sync.AttendanceId)
+	}
 	sync.Run()
 }
