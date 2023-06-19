@@ -3,16 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
 	"testing"
 	"time"
-
-	"github.com/fsnotify/fsnotify"
 )
 
 func TestIgnorable(t *testing.T) {
@@ -38,7 +34,25 @@ type cachedHttpRequest struct {
 	body []byte
 }
 
-func mockServerAndSync() (*http.Server, chan cachedHttpRequest, *Sync) {
+type rig struct {
+	server *http.Server
+	sync   *Sync
+	c      chan cachedHttpRequest
+}
+
+func (r rig) nextRequest() cachedHttpRequest {
+	select {
+	case req := <-r.c:
+		return req
+	case <-time.After(500 * time.Millisecond):
+		panic("no request received")
+	}
+}
+
+func initRig(t *testing.T) (r rig) {
+	t.Helper()
+	t.Setenv("WATCHER_BASE_PATH", t.TempDir())
+
 	l, err := net.Listen("tcp", ":8901")
 	if err != nil {
 		panic(err)
@@ -54,24 +68,53 @@ func mockServerAndSync() (*http.Server, chan cachedHttpRequest, *Sync) {
 				req:  req,
 				body: body,
 			}
-			w.Write([]byte{})
+			w.Write([]byte("hello"))
 		}),
 	}
 	go s.Serve(l)
-	return &s, c, &Sync{ServerUrl: "http://localhost:8901"}
+	if testing.Verbose() {
+		t.Setenv("DEBUG", "nopings fsevents")
+	} else {
+		t.Setenv("DEBUG", "nopings quiet")
+	}
+	t.Setenv("WATCHED_EXTS", "txt")
+	t.Setenv("SERVER_URL", "http://localhost:8901")
+	sync, err := InitFromEnv()
+	if err != nil {
+		panic(err)
+	}
+	go sync.Run()
+
+	t.Cleanup(func() {
+		sync.Close()
+		s.Close()
+	})
+	r = rig{&s, &sync, c}
+	_ = r.nextRequest() // Ignore first request to check server is valid
+	return rig{&s, &sync, c}
+}
+
+type fileUploadBody struct {
+	RelativePath string `json:"relative_path"`
+	Contents     string `json:"contents"`
+}
+
+func (fub *fileUploadBody) parse(body []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	return decoder.Decode(&fub)
 }
 
 func TestHTTPFunctions(t *testing.T) {
-	server, reqs, sync := mockServerAndSync()
-	defer server.Close()
-	sync.AttendanceId = "testid"
+	rig := initRig(t)
 
-	if err := sync.PostPing(); err != nil {
+	rig.sync.AttendanceId = "testid"
+
+	if err := rig.sync.PostPing(); err != nil {
 		t.Fatalf("ping didn't work: %v", err)
 	}
 
-	if r, ok := <-reqs; !ok || r.req.URL.Path != "/attendances/testid/pings" {
-		t.Fatal("ping path for testid was incorrect", r.req.URL.Path)
+	if chr := rig.nextRequest(); chr.req.URL.Path != "/attendances/testid/pings" {
+		t.Fatal("ping path for testid was incorrect", chr.req.URL.Path)
 	}
 
 	fileContents := "Hello\nThere\t\t😀"
@@ -83,54 +126,29 @@ func TestHTTPFunctions(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	if err := sync.PostFile(f.Name()); err != nil {
+	if err := rig.sync.PostFile(f.Name()); err != nil {
 		t.Fatalf("posting file didn't work: %v", err)
 	}
 
-	if r, ok := <-reqs; !ok || r.req.URL.Path != "/attendances/testid/file_snapshots" {
-		t.Fatal("snapshots path for testid was incorrect", r.req.URL.Path)
+	if chr := rig.nextRequest(); chr.req.URL.Path != "/attendances/testid/file_snapshots" {
+		t.Fatal("snapshots path for testid was incorrect", chr.req.URL.Path)
 	} else {
-		if ct := r.req.Header.Get("content-type"); ct != "application/json" {
+		if ct := chr.req.Header.Get("content-type"); ct != "application/json" {
 			t.Fatal("posting file sent wrong content-type", ct)
 		}
 
-		decoder := json.NewDecoder(bytes.NewReader(r.body))
-		j := struct {
-			RelativePath string `json:"relative_path"`
-			Contents     string `json:"contents"`
-		}{}
-		err := decoder.Decode(&j)
-		if err != nil {
+		var fub fileUploadBody
+		if err := fub.parse(chr.body); err != nil {
 			t.Fatal("couldn't decode json request", err)
 		}
-		if j.RelativePath != f.Name() {
-			t.Fatal("wrong filename on posted file", j.RelativePath, "not", f.Name())
+
+		if fub.RelativePath != f.Name() {
+			t.Fatal("wrong filename on posted file", fub.RelativePath, "not", f.Name())
 		}
-		if j.Contents != fileContents {
-			t.Fatal("wrong contents on posted file", j.Contents, "not", fileContents)
+		if fub.Contents != fileContents {
+			t.Fatal("wrong contents on posted file", fub.Contents, "not", fileContents)
 		}
 	}
 
 	// 0-length file should not cause a Post, how to test
-}
-
-func TestFSEvents(t *testing.T) {
-	dir := fmt.Sprintf("%s/testFsEvents.%d.%d", os.TempDir(), os.Getpid(), rand.Int())
-	fatalIfSet(os.Mkdir(dir, 0755))
-	defer os.RemoveAll(dir)
-	watcher, err := fsnotify.NewWatcher()
-	fatalIfSet(err)
-	watcher.Add(dir)
-	f, err := os.CreateTemp(dir, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case event := <-watcher.Events:
-		if event.Name == f.Name() {
-			return
-		}
-	case <-time.NewTicker(time.Second).C:
-		t.Fatalf("fsevents doesn't seem to work on this platform")
-	}
 }
