@@ -24,6 +24,7 @@ including this service in its docker-compose.yml:
       ATTENDANCE_ID_FILE: "/app/sync/attendance_id"
       WATCHED_EXTS: "js jsx ts tsx html"
       IGNORE_DIRS: ".git"
+      SW_RUNNING_IN_HOSTED_ENV:  # This is set on SW hosted environment machines
     volumes:
       - "./src:/app/exercises/src"
       - "./attendance_id:/app/sync/attendance_id"
@@ -67,6 +68,7 @@ But you can force it to poll using the *FORCE_POLL* parameter below.
 The program is configured through environment variables, only the first of which is compulsory:
 
 * **WATCHED_EXTS**: Space-separated list of file extensions to monitor, all others are ignored e.g. `js ts`.
+* **SW_RUNNING_IN_HOSTED_ENV**:  Will be set to 1 in SW hosted learner environments.
 * **IGNORE_MATCH**: A space-separated list of patterns to ignore in the full pathname e.g. `.git .DS_Store *.class`.
 * **SERVER_URL**: The URL of the server which has `/pings` and `/file_snapshots` endpoints, defaults to `https://train.skillerwhale.com`.
 * **ATTENDANCE_ID_FILE**: The file in which the user will write their session "attendance_id" supplied by the training interface to identify a particular learner. The program will not start until a valid ID is written to this file.
