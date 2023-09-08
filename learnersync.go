@@ -232,9 +232,11 @@ func (s *Sync) PostFile(path string) error {
 		struct {
 			RelativePath string `json:"relative_path"`
 			Contents     string `json:"contents"`
+			InHostedEnv  bool   `json:"sent_from_hosted_environment"`
 		}{
 			strings.TrimPrefix(path, s.Base),
 			decodeBytes(contents),
+			s.InHostedEnv,
 		},
 	)
 	fatalIfSet(err)
