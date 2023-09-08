@@ -208,7 +208,15 @@ func (s *Sync) postJSON(endpoint, data string) error {
 }
 
 func (s *Sync) PostPing() error {
-	return s.postJSON("pings", "")
+	body, err := json.Marshal(
+		struct {
+			InHostedEnv bool `json:"sent_from_hosted_environment"`
+		}{
+			s.InHostedEnv,
+		},
+	)
+	fatalIfSet(err)
+	return s.postJSON("pings", string(body))
 }
 
 func (s *Sync) PostFile(path string) error {
