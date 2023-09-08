@@ -121,13 +121,13 @@ func (w WatchedFiles) AddedOrChanged(prev WatchedFiles) (o []string) {
 }
 
 type Sync struct {
-	ServerUrl        string   `env:"SERVER_URL"         envDefault:"https://train.skillerwhale.com"`
-	InHostedEnv      bool     // TODO: Read this from the environment
-	AttendanceIdFile string   `env:"ATTENDANCE_ID_FILE" envDefault:"attendance_id"`
-	Base             string   `env:"WATCHER_BASE_PATH"  envDefault:"."`
+	ServerUrl        string   `env:"SERVER_URL"               envDefault:"https://train.skillerwhale.com"`
+	InHostedEnv      bool     `env:"SW_RUNNING_IN_HOSTED_ENV" envDefault:"0"`
+	AttendanceIdFile string   `env:"ATTENDANCE_ID_FILE"       envDefault:"attendance_id"`
+	Base             string   `env:"WATCHER_BASE_PATH"        envDefault:"."`
 	TriggerExec      string   `env:"TRIGGER_EXEC"`
-	Ignore           []string `env:"IGNORE_MATCH"       envSeparator:" ""`
-	WatchedExts      []string `env:"WATCHED_EXTS"       envSeparator:" ""`
+	Ignore           []string `env:"IGNORE_MATCH"             envSeparator:" ""`
+	WatchedExts      []string `env:"WATCHED_EXTS"             envSeparator:" ""`
 	AttendanceId     string   `env:"ATTENDANCE_ID"`
 	ForcePoll        bool     `env:"FORCE_POLL"`
 
