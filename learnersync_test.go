@@ -114,6 +114,83 @@ func TestHTTPFunctions(t *testing.T) {
 	// 0-length file should not cause a Post, how to test
 }
 
+type HLEParameterTest = struct {
+	setEnv func(s *Sync)
+	expected  bool
+}
+
+var HLEParameterTests = []HLEParameterTest{
+	{func(s *Sync) { s.InHostedEnv = false }, false},
+	{func(s *Sync) { s.InHostedEnv = true }, true},
+}
+
+func TestPostPingUsesHostedEnvironmentEnvvar(t *testing.T) {
+	server, reqs, sync := mockServerAndSync()
+	defer server.Close()
+
+	for _, test := range HLEParameterTests {
+		test.setEnv(sync) // set up the hosted learner environment env var
+
+		if err := sync.PostPing(); err != nil {
+			t.Fatalf("ping didn't work: %v", err)
+		}
+
+		if r, ok := <-reqs; !ok {
+			t.Fatal("no request sent by PostPing")
+		} else {
+			decoder := json.NewDecoder(bytes.NewReader(r.body))
+			j := struct {
+				SentFromHostedEnvironment bool `json:"sent_from_hosted_environment"`
+			}{}
+			if err := decoder.Decode(&j); err != nil {
+				t.Fatal("couldn't decode json", err)
+			}
+			if j.SentFromHostedEnvironment != test.expected {
+				t.Fatal("wrong value for sent from hosted environment", j.SentFromHostedEnvironment, "not", test.expected)
+			}
+		}
+	}
+}
+
+func TestPostFileUsesHostedEnvironmentEnvvar(t *testing.T) {
+	server, reqs, sync := mockServerAndSync()
+	defer server.Close()
+
+	for _, test := range HLEParameterTests {
+		test.setEnv(sync) // set up the hosted learner environment env var
+
+		var filename string
+		if f, err := os.CreateTemp("", "topost"); err != nil {
+			panic(err)
+		} else {
+			defer os.Remove(f.Name())
+			f.Write(([]byte)("Hello\nThere\t\t😀"))
+			f.Close()
+			filename = f.Name()
+		}
+
+		if err := sync.PostFile(filename); err != nil {
+			t.Fatalf("Posting file didn't work: %v", err)
+		}
+
+		if r, ok := <-reqs; !ok {
+			t.Fatal("no request sent by PostFile")
+		} else {
+
+			decoder := json.NewDecoder(bytes.NewReader(r.body))
+			j := struct {
+				SentFromHostedEnvironment bool `json:"sent_from_hosted_environment"`
+			}{}
+			if err := decoder.Decode(&j); err != nil {
+				t.Fatal("couldn't decode json request", err)
+			}
+			if j.SentFromHostedEnvironment != test.expected {
+				t.Fatal("wrong value for sent from hosted environment", j.SentFromHostedEnvironment, "not", test.expected)
+			}
+		}
+	}
+}
+
 func TestFSEvents(t *testing.T) {
 	dir := fmt.Sprintf("%s/testFsEvents.%d.%d", os.TempDir(), os.Getpid(), rand.Int())
 	fatalIfSet(os.Mkdir(dir, 0755))

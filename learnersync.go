@@ -121,12 +121,13 @@ func (w WatchedFiles) AddedOrChanged(prev WatchedFiles) (o []string) {
 }
 
 type Sync struct {
-	ServerUrl        string   `env:"SERVER_URL"         envDefault:"https://train.skillerwhale.com"`
-	AttendanceIdFile string   `env:"ATTENDANCE_ID_FILE" envDefault:"attendance_id"`
-	Base             string   `env:"WATCHER_BASE_PATH"  envDefault:"."`
+	ServerUrl        string   `env:"SERVER_URL"               envDefault:"https://train.skillerwhale.com"`
+	InHostedEnv      bool     `env:"SW_RUNNING_IN_HOSTED_ENV" envDefault:"0"`
+	AttendanceIdFile string   `env:"ATTENDANCE_ID_FILE"       envDefault:"attendance_id"`
+	Base             string   `env:"WATCHER_BASE_PATH"        envDefault:"."`
 	TriggerExec      string   `env:"TRIGGER_EXEC"`
-	Ignore           []string `env:"IGNORE_MATCH"       envSeparator:" ""`
-	WatchedExts      []string `env:"WATCHED_EXTS"       envSeparator:" ""`
+	Ignore           []string `env:"IGNORE_MATCH"             envSeparator:" ""`
+	WatchedExts      []string `env:"WATCHED_EXTS"             envSeparator:" ""`
 	AttendanceId     string   `env:"ATTENDANCE_ID"`
 	ForcePoll        bool     `env:"FORCE_POLL"`
 
@@ -207,7 +208,15 @@ func (s *Sync) postJSON(endpoint, data string) error {
 }
 
 func (s *Sync) PostPing() error {
-	return s.postJSON("pings", "")
+	body, err := json.Marshal(
+		struct {
+			InHostedEnv bool `json:"sent_from_hosted_environment"`
+		}{
+			s.InHostedEnv,
+		},
+	)
+	fatalIfSet(err)
+	return s.postJSON("pings", string(body))
 }
 
 func (s *Sync) PostFile(path string) error {
@@ -223,9 +232,11 @@ func (s *Sync) PostFile(path string) error {
 		struct {
 			RelativePath string `json:"relative_path"`
 			Contents     string `json:"contents"`
+			InHostedEnv  bool   `json:"sent_from_hosted_environment"`
 		}{
 			strings.TrimPrefix(path, s.Base),
 			decodeBytes(contents),
+			s.InHostedEnv,
 		},
 	)
 	fatalIfSet(err)
