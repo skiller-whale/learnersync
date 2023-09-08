@@ -122,6 +122,7 @@ func (w WatchedFiles) AddedOrChanged(prev WatchedFiles) (o []string) {
 
 type Sync struct {
 	ServerUrl        string   `env:"SERVER_URL"         envDefault:"https://train.skillerwhale.com"`
+	InHostedEnv      bool     // TODO: Read this from the environment
 	AttendanceIdFile string   `env:"ATTENDANCE_ID_FILE" envDefault:"attendance_id"`
 	Base             string   `env:"WATCHER_BASE_PATH"  envDefault:"."`
 	TriggerExec      string   `env:"TRIGGER_EXEC"`
