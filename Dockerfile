@@ -10,9 +10,10 @@ ENV TARGETOS=${TARGETOS:-linux}
 ARG TARGETARCH
 ENV TARGETARCH=${TARGETARCH:-amd64}
 
-# RUN apt update && apt -qq -y install curl
+# Replace the default shell with bash
 RUN rm /bin/sh && ln -s /bin/bash /bin/sh
 
+# Download the latest release of the sync binary and make it executable
 ADD https://github.com/skiller-whale/learnersync/releases/download/${release}/${name}-${TARGETOS}-${TARGETARCH} /usr/local/bin/${name}
 # in development: COPY SkillerWhaleSync-linux-amd64 /usr/local/bin/SkillerWhaleSync
 RUN chmod +x /usr/local/bin/$name
