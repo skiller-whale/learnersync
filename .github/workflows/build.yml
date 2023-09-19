@@ -52,7 +52,6 @@ jobs:
           files: |
             artifact/SkillerWhaleSync-*
 
-jobs:
   build-and-push-image:
     name: Build and push Docker image
     runs-on: ubuntu-latest
