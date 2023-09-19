@@ -1,4 +1,4 @@
-name: Test, build, release, and push Docker image
+name: Build & Release
 on: push
 
 env:
