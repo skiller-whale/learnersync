@@ -1,4 +1,4 @@
-name: Test, build, release
+name: Test, build, release, and push Docker image
 on: push
 jobs:
   build:
@@ -47,15 +47,13 @@ jobs:
           files: |
             artifact/SkillerWhaleSync-*
 
-name: Build and publish a Docker image
-on: push
-
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push-image:
+    name: Build and push Docker image
     runs-on: ubuntu-latest
     permissions:
       contents: read
