@@ -1,5 +1,10 @@
 name: Test, build, release, and push Docker image
 on: push
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
   build:
     name: "Test and build"
@@ -46,10 +51,6 @@ jobs:
           prerelease: false
           files: |
             artifact/SkillerWhaleSync-*
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push-image:
