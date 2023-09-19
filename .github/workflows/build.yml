@@ -22,6 +22,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           path: build
+
   release:
     name: Release
     needs: build
@@ -54,6 +55,7 @@ jobs:
 
   build-and-push-image:
     name: Build and push Docker image
+    needs: release
     runs-on: ubuntu-latest
     permissions:
       contents: read
