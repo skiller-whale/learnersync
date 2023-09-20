@@ -41,7 +41,20 @@ argument to e.g. `gchr.io/skiller-whale/learnersync:pre-release-branch`.
 
 You can build the program with `go build` or use the `buildAll` script to build for all platforms.
 
-`go test` should be pretty fast to make sure you've not broken anything.
+## Tests
+
+You can run tests using the command:
+
+```sh
+go test
+```
+
+If you don't have a `version.txt` file, then this will raise an error.
+You can fix this by running the go generate command to create an (untracked) file:
+
+```sh
+go generate
+```
 
 ## Supplying the attendance id
 
