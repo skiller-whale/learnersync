@@ -293,12 +293,12 @@ func (s *Sync) PollForFileUpdates() {
 			log.Println("Now watching", s.Base, "for changes to files with extensions", s.WatchedExts, "which contains", len(cur), "matching files on startup")
 		}
 		prev = cur
-		time.Sleep(POLL_INTERVAL_MILLIS * time.Millisecond)
 		select {
 		case <-s.noPollSignal:
 			log.Println("Polling disabled because we're getting fsnotify events")
 			return
-		default:
+		case <-time.After(POLL_INTERVAL_MILLIS * time.Millisecond):
+			// Wait for the POLL_INTERVAL to elapse, and then continue
 		}
 	}
 }
