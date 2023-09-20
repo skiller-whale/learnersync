@@ -34,6 +34,7 @@ var MatchesExtTests = []MatchesExtTest{
 	{[]string{"Dockerfile"}, "Dockerfile", true},            // file with no extension
 	{[]string{"Dockerfile"}, "/Dockerfile", true},           // file with no extension
 	{[]string{"Dockerfile"}, "/some/path/Dockerfile", true}, // file with no extension
+	{[]string{".js"}, "file.js", true},                      // with period included
 }
 
 func TestMatchesExts(t *testing.T) {
