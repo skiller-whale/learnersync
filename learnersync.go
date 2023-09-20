@@ -140,9 +140,20 @@ type Sync struct {
 }
 
 func (s *Sync) MatchesExts(path string) bool {
+	if ext := filepath.Ext(path); len(ext) > 0 {
+		// The path has an extension, try matching this.
+		return s.isEqualToWatchedExtension(ext[1:])
+
+	} else {
+		// There is no extension, try matching the complete filename instead (e.g. Dockerfile)
+		return s.isEqualToWatchedExtension(filepath.Base(path))
+	}
+}
+
+func (s *Sync) isEqualToWatchedExtension(str string) bool {
 	for _, ext := range s.WatchedExts {
-		if strings.HasSuffix(path, "."+ext) {
-			return true
+		if str == ext {
+			return true // the extension is an exact match
 		}
 	}
 	return false
