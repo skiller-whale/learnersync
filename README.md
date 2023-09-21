@@ -80,7 +80,9 @@ But you can force it to poll using the *FORCE_POLL* parameter below.
 
 The program is configured through environment variables, only the first of which is compulsory:
 
-* **WATCHED_EXTS**: Space-separated list of file extensions to monitor, all others are ignored e.g. `js ts`.
+* **WATCHED_EXTS**: Space-separated list of file extensions to monitor, all others are ignored, for example `.js .ts`.
+  * For specifically named files with no extension, you should just include the filename e.g. `.js Dockerfile .ts`.
+  * _legacy: extensions can omit the leading `.`, and files will still be matched. For example `js ts` would match `.js` or `.ts` files. This behaviour will be deprecated in the future to remove ambiguity (e.g. between a file called `js` and a file called `example.js`)_
 * **SW_RUNNING_IN_HOSTED_ENV**:  Will be set to 1 in SW hosted learner environments.
 * **IGNORE_MATCH**: A space-separated list of patterns to ignore in the full pathname e.g. `.git .DS_Store *.class`.
 * **SERVER_URL**: The URL of the server which has `/pings` and `/file_snapshots` endpoints, defaults to `https://train.skillerwhale.com`.
