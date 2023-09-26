@@ -72,10 +72,12 @@ type cachedHttpRequest struct {
 }
 
 func mockServerAndSync() (*http.Server, chan cachedHttpRequest, *Sync) {
-	l, err := net.Listen("tcp", ":8901")
+	l, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		panic(err)
 	}
+	port := l.Addr().(*net.TCPAddr).Port
+
 	c := make(chan cachedHttpRequest, 1)
 	s := http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -91,7 +93,8 @@ func mockServerAndSync() (*http.Server, chan cachedHttpRequest, *Sync) {
 		}),
 	}
 	go s.Serve(l)
-	return &s, c, &Sync{ServerUrl: "http://localhost:8901"}
+
+	return &s, c, &Sync{ServerUrl: fmt.Sprintf("http://localhost:%v", port)}
 }
 
 func TestHTTPFunctions(t *testing.T) {
