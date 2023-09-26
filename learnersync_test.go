@@ -72,6 +72,9 @@ type cachedHttpRequest struct {
 }
 
 func mockServerAndSync() (*http.Server, chan cachedHttpRequest, *Sync) {
+	// Cycle through available ports to ensure no clashes or delays between tests.
+	// We could alternatively try keeping the port the same but setting
+	// SO_REUSEADDR on the TCP listener.
 	l, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		panic(err)
