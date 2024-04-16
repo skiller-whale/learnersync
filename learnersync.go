@@ -142,7 +142,7 @@ type Sync struct {
 func (s *Sync) MatchesExts(path string) bool {
 	if ext := filepath.Ext(path); len(ext) > 0 {
 		// The path has an extension, try matching this.
-		return s.isEqualToWatchedExtension(ext[1:])
+		return s.isEqualToWatchedExtension(ext)
 	} else {
 		// There is no extension, try matching the complete filename instead (e.g. Dockerfile)
 		return s.isEqualToWatchedExtension(filepath.Base(path))
@@ -150,13 +150,11 @@ func (s *Sync) MatchesExts(path string) bool {
 }
 
 // isEqualToWatchedExtension returns true if the given string matches any of the
-// extensions in the WatchedExts list. The passed string should not include a
-// leading period.
+// extensions in the WatchedExts list. The passed string should include a
+// leading period for extensions, and omit the leading period for filenames
+// with no extension (e.g. Dockerfile)
 func (s *Sync) isEqualToWatchedExtension(str string) bool {
 	for _, ext := range s.WatchedExts {
-		if len(ext) > 0 && ext[0] == '.' {
-			ext = ext[1:] // strip leading period if present
-		}
 		if str == ext {
 			return true // the extension is an exact match
 		}
