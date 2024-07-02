@@ -23,7 +23,7 @@ including this service in its docker-compose.yml:
       WATCHER_BASE_PATH: "/app/exercises"
       ATTENDANCE_ID_FILE: "/app/sync/attendance_id"
       WATCHED_EXTS: "js jsx ts tsx html"
-      IGNORE_DIRS: ".git"
+      IGNORE_MATCH: ".git"
       SW_RUNNING_IN_HOSTED_ENV:  # This is set on SW hosted environment machines
     volumes:
       - "./src:/app/exercises/src"
