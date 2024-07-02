@@ -38,7 +38,7 @@ jobs:
         uses: "marvinpinto/action-automatic-releases@latest"
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "${{ github.ref_name }}"
+          automatic_release_tag: "PRERELEASE-${{ github.ref_name }}"
           prerelease: true
           title: "Development Build"
           files: |
@@ -92,7 +92,7 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           build-args: |
-            release=${{ github.ref_name }}
+            release=PRERELEASE-${{ github.ref_name }}
           context: .
           platforms: linux/amd64, linux/arm64
           push: true
