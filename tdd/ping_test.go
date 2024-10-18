@@ -13,7 +13,8 @@ func TestSendPingMakesPostRequest(t *testing.T) {
     })
 	server := httptest.NewServer(handler)
 
-	err := SendPing(server.URL)
+	attendanceId := "attendance_id_123"
+	err := SendPing(server.URL, attendanceId)
 	if err != nil { t.Error("SendPing raised an error") }
 
 	select {
