@@ -9,7 +9,7 @@ import (
 func TestSendPingMakesPostRequest(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
     })
-	httptest.NewServer(handler)
+	server := httptest.NewServer(handler)
 
-	SendPing()
+	SendPing(server.URL)
 }
