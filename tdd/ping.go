@@ -5,8 +5,8 @@ import (
 	"net/http"
 )
 
-func SendPing(url, attendance_id string) error {
-	pingUrl := fmt.Sprintf("%s/attendances/%s/pings", url, attendance_id)
+func SendPing(serverUrl, attendance_id string) error {
+	pingUrl := fmt.Sprintf("%s/attendances/%s/pings", serverUrl, attendance_id)
 	http.Post(pingUrl, "application/text", nil)
 	return nil
 }
