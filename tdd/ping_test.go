@@ -6,12 +6,18 @@ import (
 	"testing"
 )
 
-func TestSendPingMakesPostRequest(t *testing.T) {
+func setupTestServer() (*httptest.Server, chan *http.Request) {
 	requests := make(chan *http.Request, 1)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests <- r
-    })
+	})
 	server := httptest.NewServer(handler)
+	return server, requests
+}
+
+
+func TestSendPingMakesPostRequest(t *testing.T) {
+	server, requests := setupTestServer()
 
 	attendanceId := "attendance_id_123"
 	err := SendPing(server.URL, attendanceId)
