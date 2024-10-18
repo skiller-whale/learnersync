@@ -16,8 +16,12 @@ func TestSendPingMakesPostRequest(t *testing.T) {
 	err := SendPing(server.URL)
 	if err != nil { t.Error("SendPing raised an error") }
 
-	request := <- requests  // Get the first request
-	if m := request.Method; m != http.MethodPost {
-		t.Errorf("Expected 'POST' request, got '%s'", m)
+	select {
+	case request := <- requests:
+		if m := request.Method; m != http.MethodPost {
+			t.Errorf("Expected 'POST' request, got '%s'", m)
+		}
+	default:
+		t.Fatal("No request was captured")
 	}
 }
