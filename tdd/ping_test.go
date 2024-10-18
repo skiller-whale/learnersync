@@ -17,10 +17,14 @@ func TestSendPingMakesPostRequest(t *testing.T) {
 	err := SendPing(server.URL, attendanceId)
 	if err != nil { t.Error("SendPing raised an error") }
 
+	expectedUrl := "/attendances/attendance_id_123/pings"
 	select {
 	case request := <- requests:
 		if m := request.Method; m != http.MethodPost {
 			t.Errorf("Expected 'POST' request, got '%s'", m)
+		}
+		if url := request.URL.String(); url != expectedUrl {
+			t.Errorf("Expected request to '%s', got '%s'", expectedUrl, url)
 		}
 	default:
 		t.Fatal("No request was captured")
