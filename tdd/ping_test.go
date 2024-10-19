@@ -15,19 +15,11 @@ func setupTestServer() (*httptest.Server, chan *http.Request) {
 	return server, requests
 }
 
-
-func TestSendPingMakesPostRequest(t *testing.T) {
-	server, requests := setupTestServer()
-
-	attendanceId := "attendance_id_123"
-	err := SendPing(server.URL, attendanceId)
-	if err != nil { t.Error("SendPing raised an error") }
-
-	expectedUrl := "/attendances/attendance_id_123/pings"
+func validateRequest(t *testing.T, requests chan *http.Request, method, expectedUrl string) {
 	select {
-	case request := <- requests:
-		if m := request.Method; m != http.MethodPost {
-			t.Errorf("Expected 'POST' request, got '%s'", m)
+	case request := <-requests:
+		if m := request.Method; m != method {
+			t.Errorf("Expected '%s' request, got '%s'", method, m)
 		}
 		if url := request.URL.String(); url != expectedUrl {
 			t.Errorf("Expected request to '%s', got '%s'", expectedUrl, url)
@@ -35,4 +27,18 @@ func TestSendPingMakesPostRequest(t *testing.T) {
 	default:
 		t.Fatal("No request was captured")
 	}
+}
+
+func TestSendPingMakesPostRequest(t *testing.T) {
+	server, requests := setupTestServer()
+	defer server.Close()
+
+	attendanceId := "attendance_id_123"
+	err := SendPing(server.URL, attendanceId)
+	if err != nil {
+		t.Error("SendPing raised an error")
+	}
+
+	expectedUrl := "/attendances/attendance_id_123/pings"
+	validateRequest(t, requests, http.MethodPost, expectedUrl)
 }
