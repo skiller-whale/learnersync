@@ -1,5 +1,5 @@
-FROM debian:bookworm
-RUN apt update && apt -qq -y install ca-certificates
+FROM debian:bookworm-slim
+RUN apt update && apt -qq -y install ca-certificates && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 9494
 
