@@ -39,7 +39,7 @@ jobs:
         with:
           token: "${{ secrets.GITHUB_TOKEN }}"
           target_commitish: ${{github.ref_name}}
-          automatic_release_tag: "PRERELEASE-${{ github.ref_name }}"
+          tag_name: "PRERELEASE-${{ github.ref_name }}"
           prerelease: true
           name: "Development build"
           generate_release_notes: true
