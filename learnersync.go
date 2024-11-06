@@ -418,25 +418,29 @@ func (s *Sync) readAttendanceIdFile() (string, error) {
 }
 
 func (s *Sync) WaitForAttendanceId() error {
+	var httpEnabled = !s.InHostedEnv
+	var err error = nil
 	incomingId := make(chan string)
-	listener, err := net.Listen("tcp", ":9494")
-	if err != nil {
-		return err
+	if httpEnabled {
+		listener, err := net.Listen("tcp", ":9494")
+		if err != nil {
+			return err
+		}
+		go (&http.Server{
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				q := r.URL.Query()
+				if r.URL.Path != "/set" {
+					http.NotFound(w, r)
+				} else if q["id"] == nil || len(q["id"]) == 0 || q["redirect"] == nil || len(q["redirect"]) == 0 {
+					http.Error(w, "Must supply id and redirect parameters", 400)
+				} else {
+					incomingId <- q["id"][0]
+					http.Redirect(w, r, q["redirect"][0], 302)
+				}
+			}),
+		}).Serve(listener)
+		defer listener.Close()
 	}
-	go (&http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			q := r.URL.Query()
-			if r.URL.Path != "/set" {
-				http.NotFound(w, r)
-			} else if q["id"] == nil || len(q["id"]) == 0 || q["redirect"] == nil || len(q["redirect"]) == 0 {
-				http.Error(w, "Must supply id and redirect parameters", 400)
-			} else {
-				incomingId <- q["id"][0]
-				http.Redirect(w, r, q["redirect"][0], 302)
-			}
-		}),
-	}).Serve(listener)
-	defer listener.Close()
 
 	var prompted bool
 	for newId := ""; ; {
@@ -460,7 +464,11 @@ func (s *Sync) WaitForAttendanceId() error {
 			}
 		}
 		if !prompted {
-			log.Printf("Write attendance_id to local file %s or GET http://localhost:9494/set?id=xxxxxxx&redirect=https://skillerwhale.com/", s.AttendanceIdFile)
+			if httpEnabled {
+				log.Printf("Write attendance_id to local file %s or GET http://localhost:9494/set?id=xxxxxxx&redirect=https://skillerwhale.com/", s.AttendanceIdFile)
+			} else {
+				log.Printf("Write attendance_id to local file %s", s.AttendanceIdFile)
+			}
 			prompted = true
 		}
 	}
