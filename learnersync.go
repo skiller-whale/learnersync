@@ -202,6 +202,7 @@ var httpClient = &http.Client{
 
 const CLIENT_ERROR = Error("Server rejected our request - probably invalid attendance_id")
 const SERVER_ERROR = Error("server not working")
+const THROTTLED_ERROR = Error("Server requested that we try later")
 
 func (s *Sync) postJSON(endpoint, data string) error {
 	url := s.ServerUrl + "/attendances/" + s.AttendanceId + "/" + endpoint
@@ -217,7 +218,11 @@ func (s *Sync) postJSON(endpoint, data string) error {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
 		log.Printf("We tried to post %d bytes to %s but server gave us status %d and body \"%s\"", len(data), endpoint, resp.StatusCode, body[0:100])
-		return CLIENT_ERROR
+		if resp.StatusCode == 429 {
+			return THROTTLED_ERROR
+		} else {
+			return CLIENT_ERROR
+		}
 	}
 	return SERVER_ERROR
 }
