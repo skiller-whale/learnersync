@@ -169,10 +169,36 @@ func (s *Sync) Close() {
 
 func (s *Sync) ignorable(path string) bool {
 	for _, pattern := range s.Ignore {
+		// Strip trailing slash from pattern to handle "node_modules/" like "node_modules"
+		pattern = strings.TrimSuffix(pattern, "/")
+
+		// First, try matching against the full path
 		matched, err := filepath.Match(pattern, path)
 		fatalIfSet(err)
 		if matched {
 			return true
+		}
+
+		// If pattern doesn't contain wildcards, also check if it matches any path component
+		// This allows "node_modules" to match "/app/exercises/node_modules" and files within it
+		if !strings.ContainsAny(pattern, "*?[") {
+			// Check if the pattern matches the full path or any component
+			for _, component := range strings.Split(path, string(filepath.Separator)) {
+				if component == pattern {
+					return true
+				}
+			}
+			// Also check if the pattern appears as a path component followed by more path
+			// e.g., "node_modules" should match "/app/node_modules/foo"
+			pathWithSep := string(filepath.Separator) + pattern + string(filepath.Separator)
+			if strings.Contains(path, pathWithSep) {
+				return true
+			}
+			// Check if path ends with the pattern (e.g., "/app/exercises/node_modules")
+			pathEndsWith := string(filepath.Separator) + pattern
+			if strings.HasSuffix(path, pathEndsWith) {
+				return true
+			}
 		}
 	}
 	return false
