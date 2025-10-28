@@ -133,6 +133,73 @@ func TestIgnorableWithTrailingSlash(t *testing.T) {
 	}
 }
 
+func TestIgnorableWithLeadingSlash(t *testing.T) {
+	testCases := []struct {
+		pattern         string
+		shouldIgnore    []string
+		shouldNotIgnore []string
+	}{
+		{
+			pattern: "/lib",
+			shouldIgnore: []string{
+				"/lib",
+				"/lib/file.js",
+				"/lib/nested/file.js",
+			},
+			shouldNotIgnore: []string{
+				"/app/lib",
+				"/app/lib/file.js",
+				"/app/exercises/lib",
+				"/app/exercises/lib/file.js",
+			},
+		},
+		{
+			pattern: "/lib/",
+			shouldIgnore: []string{
+				"/lib",
+				"/lib/file.js",
+				"/lib/nested/file.js",
+			},
+			shouldNotIgnore: []string{
+				"/app/lib",
+				"/app/lib/file.js",
+				"/app/exercises/lib",
+				"/app/exercises/lib/file.js",
+			},
+		},
+		{
+			pattern: "/node_modules",
+			shouldIgnore: []string{
+				"/node_modules",
+				"/node_modules/package",
+				"/node_modules/package/file.js",
+			},
+			shouldNotIgnore: []string{
+				"/app/node_modules",
+				"/app/node_modules/file.js",
+				"/app/exercises/node_modules",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		s := Sync{
+			Ignore: []string{tc.pattern},
+		}
+
+		for _, path := range tc.shouldIgnore {
+			if !s.ignorable(path) {
+				t.Errorf("Pattern %q should ignore %q but didn't", tc.pattern, path)
+			}
+		}
+
+		for _, path := range tc.shouldNotIgnore {
+			if s.ignorable(path) {
+				t.Errorf("Pattern %q should NOT ignore %q but did", tc.pattern, path)
+			}
+		}
+	}
+}
 
 // utility for initialising a Sync alongside a test web server
 // returns a listening web server, a channel on which all incoming requests can be read, and a matching Sync object which will connect to it.
