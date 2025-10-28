@@ -182,14 +182,7 @@ func (s *Sync) ignorable(path string) bool {
 		// If pattern doesn't contain wildcards, also check if it matches any path component
 		// This allows "node_modules" to match "/app/exercises/node_modules" and files within it
 		if !strings.ContainsAny(pattern, "*?[") {
-			// Check if the pattern matches the full path or any component
-			for _, component := range strings.Split(path, string(filepath.Separator)) {
-				if component == pattern {
-					return true
-				}
-			}
-			// Also check if the pattern appears as a path component followed by more path
-			// e.g., "node_modules" should match "/app/node_modules/foo"
+			// Check if the pattern appears as a path component in the middle (e.g., "/app/node_modules/foo")
 			pathWithSep := string(filepath.Separator) + pattern + string(filepath.Separator)
 			if strings.Contains(path, pathWithSep) {
 				return true
