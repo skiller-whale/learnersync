@@ -179,18 +179,27 @@ func (s *Sync) ignorable(path string) bool {
 			return true
 		}
 
-		// If pattern doesn't contain wildcards, also check if it matches any path component
-		// This allows "node_modules" to match "/app/exercises/node_modules" and files within it
-		if !strings.ContainsAny(pattern, "*?[") {
-			// Check if the pattern appears as a path component in the middle (e.g., "/app/node_modules/foo")
-			pathWithSep := string(filepath.Separator) + pattern + string(filepath.Separator)
-			if strings.Contains(path, pathWithSep) {
-				return true
-			}
-			// Check if path ends with the pattern (e.g., "/app/exercises/node_modules")
-			pathEndsWith := string(filepath.Separator) + pattern
-			if strings.HasSuffix(path, pathEndsWith) {
-				return true
+		// For literal patterns (no wildcards), check if they match as path components.
+		// Wildcard patterns are already handled correctly by filepath.Match above.
+		if !strings.Contains(pattern, "*") {
+			// If pattern starts with /, it should only match at the root
+			if strings.HasPrefix(pattern, string(filepath.Separator)) {
+				// Match paths that start with the pattern (e.g., "/lib" matches "/lib/file.js")
+				if strings.HasPrefix(path, pattern+string(filepath.Separator)) || path == pattern {
+					return true
+				}
+			} else {
+				// Pattern without leading slash matches anywhere in the path
+				// Check if the pattern appears as a path component in the middle (e.g., "/app/node_modules/foo")
+				pathWithSep := string(filepath.Separator) + pattern + string(filepath.Separator)
+				if strings.Contains(path, pathWithSep) {
+					return true
+				}
+				// Check if path ends with the pattern (e.g., "/app/exercises/node_modules")
+				pathEndsWith := string(filepath.Separator) + pattern
+				if strings.HasSuffix(path, pathEndsWith) {
+					return true
+				}
 			}
 		}
 	}
