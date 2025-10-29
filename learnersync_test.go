@@ -52,7 +52,7 @@ func TestIgnorable(t *testing.T) {
 	s := Sync{
 		Ignore: []string{"*/.foo/*"},
 	}
-	for _, testStr := range []string{".foo", "foo", ".", "fine", "", ".foobar", "..foo"} {
+	for _, testStr := range []string{".foo", "foo", ".", "fine", "", ".foobar", "..foo", "///.foo///a"} {
 		if s.ignorable(testStr) {
 			t.Fatal("ignorable should be false for", testStr, "but wasn't")
 		}

@@ -177,8 +177,9 @@ func (s *Sync) ignorable(path string) bool {
 	if s.ignorer == nil {
 		return false
 	}
-	// Strip leading slash for gitignore matching (expects relative paths)
-	relativePath := strings.TrimPrefix(path, string(filepath.Separator))
+	// Strip all leading slashes for gitignore matching (expects relative paths)
+	// Use TrimLeft to handle edge cases like "///.foo///a"
+	relativePath := strings.TrimLeft(path, string(filepath.Separator))
 
 	// Check if path matches
 	if s.ignorer.MatchesPath(relativePath) {
