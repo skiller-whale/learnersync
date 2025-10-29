@@ -23,6 +23,7 @@ import (
 
 	"github.com/caarlos0/env/v6"
 	"github.com/fsnotify/fsnotify"
+	ignore "github.com/sabhiram/go-gitignore"
 )
 
 const MAX_UPLOAD_BYTES = 2000000
@@ -131,6 +132,7 @@ type Sync struct {
 	ForcePoll        bool     `env:"FORCE_POLL"`
 
 	watcher *fsnotify.Watcher
+	ignorer *ignore.GitIgnore
 
 	noPollSignal chan struct{}
 
@@ -168,41 +170,27 @@ func (s *Sync) Close() {
 }
 
 func (s *Sync) ignorable(path string) bool {
-	for _, pattern := range s.Ignore {
-		// Strip trailing slash from pattern to handle "node_modules/" like "node_modules"
-		pattern = strings.TrimSuffix(pattern, "/")
-
-		// First, try matching against the full path
-		matched, err := filepath.Match(pattern, path)
-		fatalIfSet(err)
-		if matched {
-			return true
-		}
-
-		// For literal patterns (no wildcards), check if they match as path components.
-		// Wildcard patterns are already handled correctly by filepath.Match above.
-		if !strings.Contains(pattern, "*") {
-			// If pattern starts with /, it should only match at the root
-			if strings.HasPrefix(pattern, string(filepath.Separator)) {
-				// Match paths that start with the pattern (e.g., "/lib" matches "/lib/file.js")
-				if strings.HasPrefix(path, pattern+string(filepath.Separator)) || path == pattern {
-					return true
-				}
-			} else {
-				// Pattern without leading slash matches anywhere in the path
-				// Check if the pattern appears as a path component in the middle (e.g., "/app/node_modules/foo")
-				pathWithSep := string(filepath.Separator) + pattern + string(filepath.Separator)
-				if strings.Contains(path, pathWithSep) {
-					return true
-				}
-				// Check if path ends with the pattern (e.g., "/app/exercises/node_modules")
-				pathEndsWith := string(filepath.Separator) + pattern
-				if strings.HasSuffix(path, pathEndsWith) {
-					return true
-				}
-			}
-		}
+	// Initialize ignorer lazily if patterns exist but ignorer not yet created
+	if s.ignorer == nil && len(s.Ignore) > 0 {
+		s.ignorer = ignore.CompileIgnoreLines(s.Ignore...)
 	}
+	if s.ignorer == nil {
+		return false
+	}
+	// Strip leading slash for gitignore matching (expects relative paths)
+	relativePath := strings.TrimPrefix(path, string(filepath.Separator))
+
+	// Check if path matches
+	if s.ignorer.MatchesPath(relativePath) {
+		return true
+	}
+
+	// Also check with trailing slash for directory patterns like "node_modules/"
+	// This ensures "node_modules/" pattern matches the directory path "/app/node_modules"
+	if s.ignorer.MatchesPath(relativePath + "/") {
+		return true
+	}
+
 	return false
 }
 
@@ -553,10 +541,8 @@ func InitFromEnv() (s Sync, err error) {
 	if s.watcher, err = fsnotify.NewWatcher(); err != nil {
 		return s, err
 	}
-	for _, pattern := range s.Ignore {
-		if _, err := filepath.Match(pattern, "/"); err != nil {
-			return s, fmt.Errorf("bad pattern in IGNORE_MATCH: %s", pattern)
-		}
+	if len(s.Ignore) > 0 {
+		s.ignorer = ignore.CompileIgnoreLines(s.Ignore...)
 	}
 
 	if s.AttendanceIdFile != "" {
