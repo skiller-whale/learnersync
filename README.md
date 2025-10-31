@@ -91,3 +91,28 @@ The program is configured through environment variables, only the first of which
 * **WATCHED_BASE_PATH**: The directory to monitor for file changes (defaults to `.`).
 * **TRIGGER_EXEC**: A trigger program to run on every file change with the full pathname as its argument.
 * **FORCE_POLL**: Set to "1" to disable inotify usage on the host.
+
+## Releases
+
+  *For an official release:*
+  - Tag the head of main with a version tag starting with v (e.g., v1.2.3)
+  - The workflow creates a proper release 
+
+  **Commands:**
+  Make sure you're on main and up to date
+
+  ```
+  git checkout main
+  git pull
+  git tag v1.2.3  # or whatever version you want
+  git push origin v1.2.3
+  ```
+
+  - Tags starting with v trigger a full release
+  - Binaries (SkillerWhaleSync-*) are attached to the GitHub release
+  - Docker images are built and pushed to ghcr.io with the version tag
+
+  Pre-releases:
+  - Any push to a branch (without a v tag) creates a pre-release tagged as
+  PRERELEASE-{branch_name}
+  - Pushing to main without a tag creates PRERELEASE-main
