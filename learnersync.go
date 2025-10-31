@@ -26,6 +26,7 @@ import (
 )
 
 const MAX_UPLOAD_BYTES = 2000000
+const pathSep = "/"
 
 const SEND_AFTER_MILLIS = 100
 const PING_EVERY_MILLIS = 2000
@@ -169,10 +170,38 @@ func (s *Sync) Close() {
 
 func (s *Sync) ignorable(path string) bool {
 	for _, pattern := range s.Ignore {
+		// Strip trailing slash from pattern to handle "node_modules/" like "node_modules"
+		pattern = strings.TrimSuffix(pattern, "/")
+
+		// First, try matching against the full path
 		matched, err := filepath.Match(pattern, path)
 		fatalIfSet(err)
 		if matched {
 			return true
+		}
+
+		// For literal patterns (no wildcards), check if they match as path components.
+		// Wildcard patterns are already handled correctly by filepath.Match above.
+		if !strings.Contains(pattern, "*") {
+			// If pattern starts with /, it should only match at the root
+			if strings.HasPrefix(pattern, pathSep) {
+				// Match paths that start with the pattern (e.g., "/lib" matches "/lib/file.js")
+				if strings.HasPrefix(path, pattern+pathSep) || path == pattern {
+					return true
+				}
+			} else {
+				// Pattern without leading slash matches anywhere in the path
+				// Check if the pattern appears as a path component in the middle (e.g., "/app/node_modules/foo")
+				pathWithSep := pathSep + pattern + pathSep
+				if strings.Contains(path, pathWithSep) {
+					return true
+				}
+				// Check if path ends with the pattern (e.g., "/app/exercises/node_modules")
+				pathEndsWith := pathSep + pattern
+				if strings.HasSuffix(path, pathEndsWith) {
+					return true
+				}
+			}
 		}
 	}
 	return false
