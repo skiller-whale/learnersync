@@ -444,7 +444,7 @@ func (s *Sync) RunTriggers() {
 }
 
 func (s *Sync) readAttendanceIdFile() (string, error) {
-	contents, err := readFileMax(s.AttendanceIdFile, 100)
+	contents, err := readFileMax(s.AttendanceIdFile, 3000)
 	if err != nil {
 		return "", err
 	}
