@@ -920,3 +920,68 @@ func TestFilesInNewDirectoriesAreSynced(t *testing.T) {
 		t.Fatal("file added to newly created directory was not detected within 2 seconds")
 	}
 }
+
+// Test that files created immediately after directory creation are detected
+// This tests that we properly handle the race condition where a file is created
+// in a new directory before the watcher has fully initialized watching that directory.
+// The fix: after adding a directory to the watcher, we scan it for existing files.
+func TestFileInNewDirectoryRaceCondition(t *testing.T) {
+	baseDir := fmt.Sprintf("%s/testRace.%d.%d", os.TempDir(), os.Getpid(), rand.Int())
+	fatalIfSet(os.Mkdir(baseDir, 0755))
+	defer os.RemoveAll(baseDir)
+
+	watcher, err := fsnotify.NewWatcher()
+	fatalIfSet(err)
+
+	sync := &Sync{
+		Base:        baseDir,
+		WatchedExts: []string{"txt"},
+		Ignore:      []string{},
+		watcher:     watcher,
+		fileUpdated: make(chan string, 10),
+	}
+
+	fatalIfSet(sync.WatchDirectory(baseDir))
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Expected panic when watcher is closed
+			}
+		}()
+		sync.WaitForFileUpdates()
+	}()
+	defer watcher.Close()
+
+	// Give watcher time to initialize
+	time.Sleep(100 * time.Millisecond)
+
+	// Create directory and file in rapid succession to trigger race condition
+	newDir := filepath.Clean(fmt.Sprintf("%s/newdir", baseDir))
+	fatalIfSet(os.Mkdir(newDir, 0755))
+
+	// Create file IMMEDIATELY after directory, without any delay
+	// This should trigger the race condition where the file is created
+	// before the directory is fully added to the watcher
+	newFile := fmt.Sprintf("%s/file.txt", newDir)
+	fatalIfSet(os.WriteFile(newFile, []byte("content"), 0644))
+
+	// Collect all detected files
+	detectedFiles := make(map[string]bool)
+	timeout := time.After(500 * time.Millisecond)
+	collecting := true
+	for collecting {
+		select {
+		case <-timeout:
+			collecting = false
+		case file := <-sync.fileUpdated:
+			detectedFiles[filepath.Clean(file)] = true
+		}
+	}
+
+	// Verify the file was detected
+	expectedFile := filepath.Clean(newFile)
+	if !detectedFiles[expectedFile] {
+		t.Fatalf("file created immediately after directory was not detected. Expected %s, got files: %v", expectedFile, detectedFiles)
+	}
+}
