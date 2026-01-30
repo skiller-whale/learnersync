@@ -850,10 +850,9 @@ func TestScanForFiles(t *testing.T) {
 }
 
 // Test that files added to newly created directories are detected and synced
-// FAILING TEST: This behavior is not yet implemented.
 // When a new directory is created and files are added to it, those files should
-// be detected and synced. Currently, the watcher does not automatically watch
-// newly created directories, so files added to them are not detected.
+// be detected and synced. The watcher now handles both Write and Create events,
+// automatically adding newly created directories to the watch list.
 func TestFilesInNewDirectoriesAreSynced(t *testing.T) {
 	dir := fmt.Sprintf("%s/testNewDir.%d.%d", os.TempDir(), os.Getpid(), rand.Int())
 	fatalIfSet(os.Mkdir(dir, 0755))
@@ -910,8 +909,11 @@ func TestFilesInNewDirectoriesAreSynced(t *testing.T) {
 	// Wait for the file to be detected
 	select {
 	case detected := <-sync.fileUpdated:
-		if detected != newFile {
-			t.Fatalf("expected %s to be detected, got %s", newFile, detected)
+		// Normalize paths for comparison (handle different path separators and cleanup)
+		expectedPath := filepath.Clean(newFile)
+		detectedPath := filepath.Clean(detected)
+		if detectedPath != expectedPath {
+			t.Fatalf("expected %s to be detected, got %s", expectedPath, detectedPath)
 		}
 		// Success - file in new directory was detected
 	case <-time.After(2 * time.Second):
