@@ -311,6 +311,15 @@ func (s *Sync) WaitForFileUpdates() {
 				} else {
 					if fileInfo.IsDir() {
 						s.WatchDirectory(event.Name)
+						// Scan for files that may have been created before watcher initialized
+						// This catches the race condition where files are created immediately
+						// after the directory
+						files, err := ScanForFiles(event.Name, s.ignorable, s.MatchesExts)
+						if err == nil {
+							for path := range files {
+								s.fileUpdated <- path
+							}
+						}
 					} else if fileInfo.Mode().IsRegular() {
 						if s.MatchesExts(event.Name) {
 							s.fileUpdated <- event.Name

@@ -922,8 +922,9 @@ func TestFilesInNewDirectoriesAreSynced(t *testing.T) {
 }
 
 // Test that files created immediately after directory creation are detected
-// This tests the race condition where a file is created in a new directory
-// before the watcher has fully initialized watching that directory
+// This tests that we properly handle the race condition where a file is created
+// in a new directory before the watcher has fully initialized watching that directory.
+// The fix: after adding a directory to the watcher, we scan it for existing files.
 func TestFileInNewDirectoryRaceCondition(t *testing.T) {
 	baseDir := fmt.Sprintf("%s/testRace.%d.%d", os.TempDir(), os.Getpid(), rand.Int())
 	fatalIfSet(os.Mkdir(baseDir, 0755))
