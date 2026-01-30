@@ -848,3 +848,75 @@ func TestScanForFiles(t *testing.T) {
 		}
 	})
 }
+
+// Test that files added to newly created directories are detected and synced
+// When a new directory is created and files are added to it, those files should
+// be detected and synced. The watcher now handles both Write and Create events,
+// automatically adding newly created directories to the watch list.
+func TestFilesInNewDirectoriesAreSynced(t *testing.T) {
+	dir := fmt.Sprintf("%s/testNewDir.%d.%d", os.TempDir(), os.Getpid(), rand.Int())
+	fatalIfSet(os.Mkdir(dir, 0755))
+	defer os.RemoveAll(dir)
+
+	// Create initial file so directory is not empty
+	os.WriteFile(fmt.Sprintf("%s/existing.js", dir), []byte("initial"), 0644)
+
+	// Set up watcher and sync
+	watcher, err := fsnotify.NewWatcher()
+	fatalIfSet(err)
+
+	sync := &Sync{
+		Base:        dir,
+		WatchedExts: []string{"js"},
+		Ignore:      []string{},
+		watcher:     watcher,
+		fileUpdated: make(chan string, 10),
+	}
+
+	// Watch the base directory
+	fatalIfSet(sync.WatchDirectory(dir))
+
+	// Start watching for file updates in a goroutine
+	// Use a channel to detect when the goroutine encounters an error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer func() {
+			if r := recover(); r != nil {
+				// Expected panic when watcher is closed
+			}
+		}()
+		sync.WaitForFileUpdates()
+	}()
+
+	// Ensure watcher is closed when test completes
+	defer watcher.Close()
+
+	// Give the watcher time to initialize
+	time.Sleep(100 * time.Millisecond)
+
+	// Create a new subdirectory
+	newDir := fmt.Sprintf("%s/newsubdir", dir)
+	fatalIfSet(os.Mkdir(newDir, 0755))
+
+	// Give filesystem time to process directory creation
+	time.Sleep(100 * time.Millisecond)
+
+	// Add a file to the newly created directory
+	newFile := fmt.Sprintf("%s/newfile.js", newDir)
+	fatalIfSet(os.WriteFile(newFile, []byte("new content"), 0644))
+
+	// Wait for the file to be detected
+	select {
+	case detected := <-sync.fileUpdated:
+		// Normalize paths for comparison (handle different path separators and cleanup)
+		expectedPath := filepath.Clean(newFile)
+		detectedPath := filepath.Clean(detected)
+		if detectedPath != expectedPath {
+			t.Fatalf("expected %s to be detected, got %s", expectedPath, detectedPath)
+		}
+		// Success - file in new directory was detected
+	case <-time.After(2 * time.Second):
+		t.Fatal("file added to newly created directory was not detected within 2 seconds")
+	}
+}
