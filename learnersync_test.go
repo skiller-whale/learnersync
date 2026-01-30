@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -386,4 +387,464 @@ func TestFSEvents(t *testing.T) {
 	case <-time.NewTicker(time.Second).C:
 		t.Fatalf("fsevents doesn't seem to work on this platform")
 	}
+}
+
+// Test readFileMax function
+func TestReadFileMax(t *testing.T) {
+	t.Run("reads file smaller than max", func(t *testing.T) {
+		f, err := os.CreateTemp("", "small")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(f.Name())
+
+		content := "Hello, World!"
+		f.Write([]byte(content))
+		f.Close()
+
+		data, err := readFileMax(f.Name(), 100)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if string(data) != content {
+			t.Fatalf("expected %q, got %q", content, string(data))
+		}
+	})
+
+	t.Run("returns TOO_LARGE_ERROR when file exceeds max", func(t *testing.T) {
+		f, err := os.CreateTemp("", "large")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(f.Name())
+
+		content := "Hello, World!"
+		f.Write([]byte(content))
+		f.Close()
+
+		_, err = readFileMax(f.Name(), 5)
+		if err != TOO_LARGE_ERROR {
+			t.Fatalf("expected TOO_LARGE_ERROR, got %v", err)
+		}
+	})
+
+	t.Run("handles empty file", func(t *testing.T) {
+		f, err := os.CreateTemp("", "empty")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(f.Name())
+		f.Close()
+
+		data, err := readFileMax(f.Name(), 100)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if len(data) != 0 {
+			t.Fatalf("expected empty data, got %d bytes", len(data))
+		}
+	})
+
+	t.Run("returns error for non-existent file", func(t *testing.T) {
+		_, err := readFileMax("/non/existent/file", 100)
+		if err == nil {
+			t.Fatal("expected error for non-existent file")
+		}
+	})
+}
+
+// Test decodeBytes function
+func TestDecodeBytes(t *testing.T) {
+	t.Run("removes UTF-8 BOM", func(t *testing.T) {
+		input := append([]byte{0xef, 0xbb, 0xbf}, []byte("Hello")...)
+		result := decodeBytes(input)
+		if result != "Hello" {
+			t.Fatalf("expected %q, got %q", "Hello", result)
+		}
+	})
+
+	t.Run("handles text without BOM", func(t *testing.T) {
+		input := []byte("Hello, World!")
+		result := decodeBytes(input)
+		if result != "Hello, World!" {
+			t.Fatalf("expected %q, got %q", "Hello, World!", result)
+		}
+	})
+
+	t.Run("handles short input", func(t *testing.T) {
+		input := []byte("Hi")
+		result := decodeBytes(input)
+		if result != "Hi" {
+			t.Fatalf("expected %q, got %q", "Hi", result)
+		}
+	})
+
+	t.Run("handles empty input", func(t *testing.T) {
+		input := []byte{}
+		result := decodeBytes(input)
+		if result != "" {
+			t.Fatalf("expected empty string, got %q", result)
+		}
+	})
+}
+
+// Test postJSON error handling
+func TestPostJSONErrorHandling(t *testing.T) {
+	t.Run("returns nil for 200 OK", func(t *testing.T) {
+		l, err := net.Listen("tcp", "localhost:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+
+		server := &http.Server{
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}),
+		}
+		go server.Serve(l)
+		defer server.Close()
+
+		sync := &Sync{
+			ServerUrl:    fmt.Sprintf("http://localhost:%d", port),
+			AttendanceId: "testid",
+		}
+
+		err = sync.postJSON("test", "{}")
+		if err != nil {
+			t.Fatalf("expected no error for 200 OK, got %v", err)
+		}
+	})
+
+	t.Run("returns CLIENT_ERROR for 400", func(t *testing.T) {
+		l, err := net.Listen("tcp", "localhost:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+
+		server := &http.Server{
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte("Bad request"))
+			}),
+		}
+		go server.Serve(l)
+		defer server.Close()
+
+		sync := &Sync{
+			ServerUrl:    fmt.Sprintf("http://localhost:%d", port),
+			AttendanceId: "testid",
+		}
+
+		err = sync.postJSON("test", "{}")
+		if err != CLIENT_ERROR {
+			t.Fatalf("expected CLIENT_ERROR for 400, got %v", err)
+		}
+	})
+
+	t.Run("returns THROTTLED_ERROR for 429", func(t *testing.T) {
+		l, err := net.Listen("tcp", "localhost:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+
+		server := &http.Server{
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusTooManyRequests)
+				w.Write([]byte("Too many requests"))
+			}),
+		}
+		go server.Serve(l)
+		defer server.Close()
+
+		sync := &Sync{
+			ServerUrl:    fmt.Sprintf("http://localhost:%d", port),
+			AttendanceId: "testid",
+		}
+
+		err = sync.postJSON("test", "{}")
+		if err != THROTTLED_ERROR {
+			t.Fatalf("expected THROTTLED_ERROR for 429, got %v", err)
+		}
+	})
+
+	t.Run("returns SERVER_ERROR for 500", func(t *testing.T) {
+		l, err := net.Listen("tcp", "localhost:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+
+		server := &http.Server{
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+			}),
+		}
+		go server.Serve(l)
+		defer server.Close()
+
+		sync := &Sync{
+			ServerUrl:    fmt.Sprintf("http://localhost:%d", port),
+			AttendanceId: "testid",
+		}
+
+		err = sync.postJSON("test", "{}")
+		if err != SERVER_ERROR {
+			t.Fatalf("expected SERVER_ERROR for 500, got %v", err)
+		}
+	})
+}
+
+// Test WatchedFiles.AddedOrChanged
+func TestWatchedFilesAddedOrChanged(t *testing.T) {
+	baseTime := time.Now()
+
+	t.Run("detects new files", func(t *testing.T) {
+		prev := WatchedFiles{
+			"/path/file1.txt": baseTime,
+		}
+		current := WatchedFiles{
+			"/path/file1.txt": baseTime,
+			"/path/file2.txt": baseTime.Add(time.Second),
+		}
+
+		changed := current.AddedOrChanged(prev)
+		if len(changed) != 1 {
+			t.Fatalf("expected 1 changed file, got %d", len(changed))
+		}
+		if changed[0] != "/path/file2.txt" {
+			t.Fatalf("expected /path/file2.txt, got %s", changed[0])
+		}
+	})
+
+	t.Run("detects modified files", func(t *testing.T) {
+		prev := WatchedFiles{
+			"/path/file1.txt": baseTime,
+		}
+		current := WatchedFiles{
+			"/path/file1.txt": baseTime.Add(time.Second),
+		}
+
+		changed := current.AddedOrChanged(prev)
+		if len(changed) != 1 {
+			t.Fatalf("expected 1 changed file, got %d", len(changed))
+		}
+		if changed[0] != "/path/file1.txt" {
+			t.Fatalf("expected /path/file1.txt, got %s", changed[0])
+		}
+	})
+
+	t.Run("ignores unchanged files", func(t *testing.T) {
+		prev := WatchedFiles{
+			"/path/file1.txt": baseTime,
+			"/path/file2.txt": baseTime,
+		}
+		current := WatchedFiles{
+			"/path/file1.txt": baseTime,
+			"/path/file2.txt": baseTime,
+		}
+
+		changed := current.AddedOrChanged(prev)
+		if len(changed) != 0 {
+			t.Fatalf("expected 0 changed files, got %d", len(changed))
+		}
+	})
+
+	t.Run("handles empty previous state", func(t *testing.T) {
+		prev := WatchedFiles{}
+		current := WatchedFiles{
+			"/path/file1.txt": baseTime,
+			"/path/file2.txt": baseTime,
+		}
+
+		changed := current.AddedOrChanged(prev)
+		if len(changed) != 2 {
+			t.Fatalf("expected 2 changed files, got %d", len(changed))
+		}
+	})
+}
+
+// Test readAttendanceIdFile
+func TestReadAttendanceIdFile(t *testing.T) {
+	t.Run("trims whitespace from attendance ID", func(t *testing.T) {
+		f, err := os.CreateTemp("", "attendance")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(f.Name())
+
+		f.Write([]byte("  test-id-123  \n\t"))
+		f.Close()
+
+		sync := &Sync{AttendanceIdFile: f.Name()}
+		id, err := sync.readAttendanceIdFile()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if id != "test-id-123" {
+			t.Fatalf("expected %q, got %q", "test-id-123", id)
+		}
+	})
+
+	t.Run("handles file with newlines", func(t *testing.T) {
+		f, err := os.CreateTemp("", "attendance")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(f.Name())
+
+		f.Write([]byte("test-id\n\n\n"))
+		f.Close()
+
+		sync := &Sync{AttendanceIdFile: f.Name()}
+		id, err := sync.readAttendanceIdFile()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if id != "test-id" {
+			t.Fatalf("expected %q, got %q", "test-id", id)
+		}
+	})
+
+	t.Run("returns error for non-existent file", func(t *testing.T) {
+		sync := &Sync{AttendanceIdFile: "/non/existent/file"}
+		_, err := sync.readAttendanceIdFile()
+		if err == nil {
+			t.Fatal("expected error for non-existent file")
+		}
+	})
+}
+
+// Test PostFile with empty file
+func TestPostFileWithEmptyFile(t *testing.T) {
+	server, reqs, sync := mockServerAndSync()
+	defer server.Close()
+	sync.AttendanceId = "testid"
+
+	f, err := os.CreateTemp("", "empty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(f.Name())
+	f.Close()
+
+	err = sync.PostFile(f.Name())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should not post empty file - check that no request was sent
+	select {
+	case <-reqs:
+		t.Fatal("empty file should not be posted")
+	case <-time.After(100 * time.Millisecond):
+		// No request received, as expected
+	}
+}
+
+// Test PostFile with too-large file
+func TestPostFileWithTooLargeFile(t *testing.T) {
+	server, reqs, sync := mockServerAndSync()
+	defer server.Close()
+	sync.AttendanceId = "testid"
+
+	f, err := os.CreateTemp("", "large")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(f.Name())
+
+	// Write more than MAX_UPLOAD_BYTES
+	largeContent := make([]byte, MAX_UPLOAD_BYTES+1)
+	for i := range largeContent {
+		largeContent[i] = 'x'
+	}
+	f.Write(largeContent)
+	f.Close()
+
+	err = sync.PostFile(f.Name())
+	if err != TOO_LARGE_ERROR {
+		t.Fatalf("expected TOO_LARGE_ERROR, got %v", err)
+	}
+
+	// Should not post the file
+	select {
+	case <-reqs:
+		t.Fatal("too-large file should not be posted")
+	case <-time.After(100 * time.Millisecond):
+		// No request received, as expected
+	}
+}
+
+// Test ScanForFiles
+func TestScanForFiles(t *testing.T) {
+	dir := fmt.Sprintf("%s/testScanFiles.%d.%d", os.TempDir(), os.Getpid(), rand.Int())
+	fatalIfSet(os.Mkdir(dir, 0755))
+	defer os.RemoveAll(dir)
+
+	// Create some test files
+	os.WriteFile(fmt.Sprintf("%s/file1.js", dir), []byte("content"), 0644)
+	os.WriteFile(fmt.Sprintf("%s/file2.txt", dir), []byte("content"), 0644)
+	os.WriteFile(fmt.Sprintf("%s/file3.js", dir), []byte("content"), 0644)
+
+	// Create a subdirectory with files
+	subdir := fmt.Sprintf("%s/subdir", dir)
+	fatalIfSet(os.Mkdir(subdir, 0755))
+	os.WriteFile(fmt.Sprintf("%s/file4.js", subdir), []byte("content"), 0644)
+
+	// Create an ignored directory
+	ignoredDir := fmt.Sprintf("%s/ignored", dir)
+	fatalIfSet(os.Mkdir(ignoredDir, 0755))
+	os.WriteFile(fmt.Sprintf("%s/file5.js", ignoredDir), []byte("content"), 0644)
+
+	t.Run("scans and filters by extension", func(t *testing.T) {
+		files, err := ScanForFiles(dir,
+			func(filename string) bool { return false },
+			func(filename string) bool { return filepath.Ext(filename) == ".js" })
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Should find 4 .js files (file1.js, file3.js, file4.js, ignored/file5.js)
+		if len(files) != 4 {
+			t.Fatalf("expected 4 files, got %d", len(files))
+		}
+	})
+
+	t.Run("respects ignore filter", func(t *testing.T) {
+		files, err := ScanForFiles(dir,
+			func(path string) bool {
+				// Ignore the 'ignored' directory by checking if the path contains it
+				return filepath.Base(path) == "ignored"
+			},
+			func(filename string) bool { return filepath.Ext(filename) == ".js" })
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Should find 3 .js files (file1.js, file3.js, file4.js) - not file5.js in ignored dir
+		if len(files) != 3 {
+			t.Fatalf("expected 3 files, got %d: %v", len(files), files)
+		}
+	})
+
+	t.Run("captures modification times", func(t *testing.T) {
+		files, err := ScanForFiles(dir,
+			func(filename string) bool { return false },
+			func(filename string) bool { return true })
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		for path, modTime := range files {
+			if modTime.IsZero() {
+				t.Fatalf("file %s has zero modification time", path)
+			}
+		}
+	})
 }
