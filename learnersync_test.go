@@ -920,3 +920,89 @@ func TestFilesInNewDirectoriesAreSynced(t *testing.T) {
 		t.Fatal("file added to newly created directory was not detected within 2 seconds")
 	}
 }
+
+// Test that files in deleted and recreated directories are detected correctly.
+// When a directory is deleted and recreated, files added to it should be detected.
+// Multiple events for the same file are acceptable as they're deduplicated in production.
+func TestDirectoryDeleteAndRecreate(t *testing.T) {
+	baseDir := fmt.Sprintf("%s/testDelRecreate.%d.%d", os.TempDir(), os.Getpid(), rand.Int())
+	fatalIfSet(os.Mkdir(baseDir, 0755))
+	defer os.RemoveAll(baseDir)
+
+	// Create an initial watched file in the base directory
+	os.WriteFile(fmt.Sprintf("%s/existing.txt", baseDir), []byte("initial"), 0644)
+
+	// Create a subdirectory that we'll delete and recreate
+	subDir := fmt.Sprintf("%s/subdir", baseDir)
+	fatalIfSet(os.Mkdir(subDir, 0755))
+
+	watcher, err := fsnotify.NewWatcher()
+	fatalIfSet(err)
+
+	sync := &Sync{
+		Base:        baseDir,
+		WatchedExts: []string{"txt"},
+		Ignore:      []string{},
+		watcher:     watcher,
+		fileUpdated: make(chan string, 10),
+	}
+
+	// Watch both directories
+	fatalIfSet(sync.WatchDirectory(baseDir))
+
+	// Start watching for file updates
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Expected panic when watcher is closed
+			}
+		}()
+		sync.WaitForFileUpdates()
+	}()
+	defer watcher.Close()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Delete the subdirectory
+	fatalIfSet(os.RemoveAll(subDir))
+	time.Sleep(100 * time.Millisecond)
+
+	// Recreate the subdirectory
+	fatalIfSet(os.Mkdir(subDir, 0755))
+	time.Sleep(100 * time.Millisecond)
+
+	// Add a file to the recreated directory
+	testFile := fmt.Sprintf("%s/test.txt", subDir)
+	fatalIfSet(os.WriteFile(testFile, []byte("content"), 0644))
+
+	// Collect events for the file. On some platforms (Linux), we may receive multiple
+	// events (CREATE + WRITE), but this is handled correctly in production via the
+	// map-based deduplication in PostFileUpdates. We just need to verify the file is detected.
+	var detectedFiles []string
+	timeout := time.After(200 * time.Millisecond)
+
+collectLoop:
+	for {
+		select {
+		case <-timeout:
+			break collectLoop
+		case detected := <-sync.fileUpdated:
+			detectedFiles = append(detectedFiles, detected)
+		}
+	}
+
+	// Verify at least one event was received
+	if len(detectedFiles) == 0 {
+		t.Fatal("file in recreated directory was not detected")
+	}
+
+	// Verify all events are for the correct file
+	expectedPath := filepath.Clean(testFile)
+	for _, detected := range detectedFiles {
+		detectedPath := filepath.Clean(detected)
+		if detectedPath != expectedPath {
+			t.Fatalf("expected events for %s, but got event for %s", expectedPath, detectedPath)
+		}
+	}
+
+}
