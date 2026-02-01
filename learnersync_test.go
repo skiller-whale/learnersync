@@ -920,3 +920,73 @@ func TestFilesInNewDirectoriesAreSynced(t *testing.T) {
 		t.Fatal("file added to newly created directory was not detected within 2 seconds")
 	}
 }
+
+// Test that a directory can be deleted and re-created without duplicate watching issues
+func TestDirectoryDeleteAndRecreate(t *testing.T) {
+	baseDir := fmt.Sprintf("%s/testDelRecreate.%d.%d", os.TempDir(), os.Getpid(), rand.Int())
+	fatalIfSet(os.Mkdir(baseDir, 0755))
+	defer os.RemoveAll(baseDir)
+
+	// Create an initial watched file in the base directory
+	os.WriteFile(fmt.Sprintf("%s/existing.txt", baseDir), []byte("initial"), 0644)
+
+	// Create a subdirectory that we'll delete and recreate
+	subDir := fmt.Sprintf("%s/subdir", baseDir)
+	fatalIfSet(os.Mkdir(subDir, 0755))
+
+	watcher, err := fsnotify.NewWatcher()
+	fatalIfSet(err)
+
+	sync := &Sync{
+		Base:        baseDir,
+		WatchedExts: []string{"txt"},
+		Ignore:      []string{},
+		watcher:     watcher,
+		fileUpdated: make(chan string, 10),
+	}
+
+	// Watch both directories
+	fatalIfSet(sync.WatchDirectory(baseDir))
+
+	// Start watching for file updates
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Expected panic when watcher is closed
+			}
+		}()
+		sync.WaitForFileUpdates()
+	}()
+	defer watcher.Close()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Delete the subdirectory
+	fatalIfSet(os.RemoveAll(subDir))
+	time.Sleep(100 * time.Millisecond)
+
+	// Recreate the subdirectory
+	fatalIfSet(os.Mkdir(subDir, 0755))
+	time.Sleep(100 * time.Millisecond)
+
+	// Add a file to the recreated directory
+	testFile := fmt.Sprintf("%s/test.txt", subDir)
+	fatalIfSet(os.WriteFile(testFile, []byte("content"), 0644))
+
+	// Should receive exactly one event for the file
+	eventCount := 0
+	for {
+		select {
+		case <-time.After(50 * time.Millisecond):
+			if eventCount == 0 {
+				t.Fatal("file in recreated directory was not detected. You may need to increase the test timeout.")
+			}
+			return
+		case <-sync.fileUpdated:
+			eventCount++
+			if eventCount > 1 {
+				t.Fatalf("received %d events for file in recreated directory, expected 1", eventCount)
+			}
+		}
+	}
+}
