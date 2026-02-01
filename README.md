@@ -56,6 +56,16 @@ You can fix this by running the go generate command to create an (untracked) fil
 go generate
 ```
 
+### Testing on Linux
+
+Some tests behave differently on Linux vs macOS due to platform-specific filesystem notification implementations (inotify vs kqueue). To run tests in a Linux environment matching production:
+
+```sh
+./bin/test-linux.sh
+```
+
+This builds a Docker container with Debian Bookworm (matching production), then runs the full test suite.
+
 ## Supplying the attendance id
 
 Each learner in a coaching session is given an "attendance id", a random number which they need to pass on
