@@ -299,7 +299,7 @@ func (s *Sync) WaitForFileUpdates() {
 			if !ok {
 				panic("watcher.Events channel closed unexpectedly")
 			}
-			if event.Has(fsnotify.Write) {
+			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
 				if s.noPollSignal != nil {
 					s.noPollSignal <- struct{}{}
 					s.noPollSignal = nil
