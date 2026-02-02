@@ -28,6 +28,10 @@ import (
 const MAX_UPLOAD_BYTES = 2000000
 const pathSep = "/"
 
+// DefaultIgnorePatterns are always ignored regardless of IGNORE_MATCH setting.
+// These are common dependency/cache directories that should never be synced.
+var DefaultIgnorePatterns = []string{".git", "node_modules", "__pycache__", ".venv", "vendor"}
+
 const SEND_AFTER_MILLIS = 100
 const PING_EVERY_MILLIS = 2000
 const PING_WARNING_MILLIS = 5000
@@ -544,6 +548,7 @@ func InitFromEnv() (s Sync, err error) {
 	if err = env.Parse(&s); err != nil {
 		return s, err
 	}
+	s.Ignore = append(s.Ignore, DefaultIgnorePatterns...)
 	s.fileUpdated = make(chan string)
 	s.noPollSignal = make(chan struct{})
 
