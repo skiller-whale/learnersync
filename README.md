@@ -84,7 +84,7 @@ The program is configured through environment variables, only the first of which
   * For specifically named files with no extension, you should just include the filename e.g. `.js Dockerfile .ts`.
   * _legacy: extensions can omit the leading `.`, and files will still be matched. For example `js ts` would match `.js` or `.ts` files. This behaviour will be deprecated in the future to remove ambiguity (e.g. between a file called `js` and a file called `example.js`)_
 * **SW_RUNNING_IN_HOSTED_ENV**:  Will be set to 1 in SW hosted learner environments.
-* **IGNORE_MATCH**: A space-separated list of patterns to ignore in the full pathname e.g. `.git .DS_Store *.class`.
+* **IGNORE_MATCH**: A space-separated list of patterns to ignore in the full pathname e.g. `.DS_Store *.class`. Note: patterns in [`DefaultIgnorePatterns`](learnersync.go#L31) are always ignored.
 * **SERVER_URL**: The URL of the server which has `/pings` and `/file_snapshots` endpoints, defaults to `https://train.skillerwhale.com`.
 * **ATTENDANCE_ID_FILE**: The file in which the user will write their session "attendance_id" supplied by the training interface to identify a particular learner. The program will not start until a valid ID is written to this file.
 * **ATTENDANCE_ID**: Alternatively, you can supply the ID directly and the program will quit if it's not valid.
