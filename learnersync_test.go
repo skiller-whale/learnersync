@@ -921,6 +921,85 @@ func TestFilesInNewDirectoriesAreSynced(t *testing.T) {
 	}
 }
 
+// Test that default ignore patterns are applied
+func TestDefaultIgnorePatterns(t *testing.T) {
+	// Simulate what InitFromEnv does: append defaults to user-specified patterns
+	s := Sync{
+		Ignore: append([]string{}, DefaultIgnorePatterns...),
+	}
+
+	// Test that all default patterns are ignored
+	defaultIgnoreTests := []struct {
+		path         string
+		shouldIgnore bool
+		description  string
+	}{
+		// .git
+		{"/app/exercises/.git", true, ".git directory"},
+		{"/app/exercises/.git/config", true, "file inside .git"},
+		{"/app/exercises/src/.git", true, "nested .git directory"},
+		{"/app/exercises/.github", false, ".github should not be ignored"},
+		{"/app/exercises/.gitignore", false, ".gitignore file should not be ignored"},
+
+		// node_modules
+		{"/app/exercises/node_modules", true, "node_modules directory"},
+		{"/app/exercises/node_modules/package/index.js", true, "file inside node_modules"},
+		{"/app/exercises/src/node_modules", true, "nested node_modules"},
+		{"/app/exercises/node_modules_backup", false, "node_modules_backup should not be ignored"},
+
+		// __pycache__
+		{"/app/exercises/__pycache__", true, "__pycache__ directory"},
+		{"/app/exercises/__pycache__/module.cpython-39.pyc", true, "file inside __pycache__"},
+		{"/app/exercises/src/__pycache__", true, "nested __pycache__"},
+		{"/app/exercises/__pycache__old", false, "__pycache__old should not be ignored"},
+
+		// .venv
+		{"/app/exercises/.venv", true, ".venv directory"},
+		{"/app/exercises/.venv/bin/python", true, "file inside .venv"},
+		{"/app/exercises/project/.venv", true, "nested .venv"},
+		{"/app/exercises/.venv2", false, ".venv2 should not be ignored"},
+
+		// vendor
+		{"/app/exercises/vendor", true, "vendor directory"},
+		{"/app/exercises/vendor/github.com/pkg/errors", true, "file inside vendor"},
+		{"/app/exercises/src/vendor", true, "nested vendor"},
+		{"/app/exercises/vendors", false, "vendors should not be ignored"},
+	}
+
+	for _, tc := range defaultIgnoreTests {
+		result := s.ignorable(tc.path)
+		if result != tc.shouldIgnore {
+			if tc.shouldIgnore {
+				t.Errorf("%s: expected %q to be ignored but it wasn't", tc.description, tc.path)
+			} else {
+				t.Errorf("%s: expected %q to NOT be ignored but it was", tc.description, tc.path)
+			}
+		}
+	}
+}
+
+// Test that default patterns work even with empty user patterns
+func TestDefaultIgnorePatternsWithNoUserPatterns(t *testing.T) {
+	s := Sync{
+		Ignore: append([]string{}, DefaultIgnorePatterns...),
+	}
+
+	// All defaults should still be ignored
+	mustIgnore := []string{
+		"/app/.git",
+		"/app/node_modules",
+		"/app/__pycache__",
+		"/app/.venv",
+		"/app/vendor",
+	}
+
+	for _, path := range mustIgnore {
+		if !s.ignorable(path) {
+			t.Errorf("expected %q to be ignored with default patterns", path)
+		}
+	}
+}
+
 // Test that files created immediately after directory creation are detected
 // This tests that we properly handle the race condition where a file is created
 // in a new directory before the watcher has fully initialized watching that directory.
