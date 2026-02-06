@@ -25,17 +25,17 @@ type MatchesExtTest = struct {
 var MatchesExtTests = []MatchesExtTest{
 	{[]string{}, "file.js", false},                          // no watched extensions
 	{[]string{""}, "file.js", false},                        // empty watched extension
-	{[]string{"js"}, "file.js", true},                       // single watched extension
-	{[]string{"js"}, "", false},                             // empty path
-	{[]string{"js"}, "/a/long/path/file.js", true},          // single watched extension with longer path
-	{[]string{"js"}, ".js", true},                           // no filename before .
-	{[]string{"longext", "js"}, "file.js", true},            // multiple watched extensions
-	{[]string{"longext", "js"}, "longext.file", false},      // string match elsewhere in path
-	{[]string{"longext", "js"}, "file.long", false},         // partial extension match
+	{[]string{"js"}, "file.js", false},                      // watched extension without period
+	{[]string{".js"}, "file.js", true},                      // with period included
+	{[]string{".js"}, "", false},                            // empty path
+	{[]string{".js"}, "/a/long/path/file.js", true},         // single watched extension with longer path
+	{[]string{".js"}, ".js", true},                          // no filename before .
+	{[]string{"longext", ".js"}, "file.js", true},           // multiple watched extensions
+	{[]string{"longext", ".js"}, "longext.file", false},     // string match elsewhere in path
+	{[]string{"longext", ".js"}, "file.long", false},        // partial extension match
 	{[]string{"Dockerfile"}, "Dockerfile", true},            // file with no extension
 	{[]string{"Dockerfile"}, "/Dockerfile", true},           // file with no extension
 	{[]string{"Dockerfile"}, "/some/path/Dockerfile", true}, // file with no extension
-	{[]string{".js"}, "file.js", true},                      // with period included
 }
 
 func TestMatchesExts(t *testing.T) {
