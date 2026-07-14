@@ -985,3 +985,48 @@ func TestFileInNewDirectoryRaceCondition(t *testing.T) {
 		t.Fatalf("file created immediately after directory was not detected. Expected %s, got files: %v", expectedFile, detectedFiles)
 	}
 }
+
+// Regression test: a file that vanishes before it can be posted must not kill
+// the posting pipeline. Exhausting retries on a missing file used to do a bare
+// `return`, dropping the only consumer of the fileUpdated channel and silently
+// freezing sync for the rest of the session.
+func TestPostFileUpdatesSurvivesVanishedFile(t *testing.T) {
+	server, reqs, sync := mockServerAndSync()
+	defer server.Close()
+	sync.AttendanceId = "testid"
+	sync.fileUpdated = make(chan string, 10)
+
+	go sync.PostFileUpdates()
+
+	// A file that no longer exists must be dropped without stalling the loop.
+	sync.fileUpdated <- filepath.Join(os.TempDir(), fmt.Sprintf("gone.%d.%d.md", os.Getpid(), rand.Int()))
+
+	// A real file queued straight after must still get posted.
+	f, err := os.CreateTemp("", "survivor.*.md")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(f.Name())
+	f.Write([]byte("still here"))
+	f.Close()
+	sync.fileUpdated <- f.Name()
+
+	select {
+	case r := <-reqs:
+		if r.req.URL.Path != "/attendances/testid/file_snapshots" {
+			t.Fatalf("unexpected request path %s", r.req.URL.Path)
+		}
+		j := struct {
+			RelativePath string `json:"relative_path"`
+			Contents     string `json:"contents"`
+		}{}
+		if err := json.NewDecoder(bytes.NewReader(r.body)).Decode(&j); err != nil {
+			t.Fatalf("couldn't decode request: %v", err)
+		}
+		if j.Contents != "still here" {
+			t.Fatalf("wrong file posted: got contents %q", j.Contents)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("valid file was never posted — pipeline stalled after a vanished file")
+	}
+}
