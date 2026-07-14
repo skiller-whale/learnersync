@@ -985,3 +985,50 @@ func TestFileInNewDirectoryRaceCondition(t *testing.T) {
 		t.Fatalf("file created immediately after directory was not detected. Expected %s, got files: %v", expectedFile, detectedFiles)
 	}
 }
+
+// A file can vanish between being queued and being posted (e.g. a transient
+// temp file deleted moments after it was seen). When PostFileUpdates exhausts
+// its retries on such a file it must drop only that file and keep running. A
+// bare return on give-up instead kills the goroutine — the sole consumer of
+// the fileUpdated channel — so every later file silently stops syncing for the
+// rest of the session. This queues a vanished file, waits for the give-up, then
+// asserts a subsequent real file is still posted.
+func TestPostFileUpdatesSurvivesVanishedFile(t *testing.T) {
+	origBase, origJitter := retryBaseDelayMillis, retryJitterMillis
+	retryBaseDelayMillis, retryJitterMillis = 1, 1
+	defer func() { retryBaseDelayMillis, retryJitterMillis = origBase, origJitter }()
+
+	server, reqs, sync := mockServerAndSync()
+	defer server.Close()
+	sync.AttendanceId = "testid"
+	sync.fileUpdated = make(chan string, 10)
+
+	go sync.PostFileUpdates()
+
+	sync.fileUpdated <- filepath.Join(os.TempDir(), fmt.Sprintf("gone.%d.%d.md", os.Getpid(), rand.Int()))
+	time.Sleep(500 * time.Millisecond)
+
+	f, err := os.CreateTemp("", "survivor.*.md")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(f.Name())
+	f.Write([]byte("still here"))
+	f.Close()
+	sync.fileUpdated <- f.Name()
+
+	select {
+	case r := <-reqs:
+		j := struct {
+			Contents string `json:"contents"`
+		}{}
+		if err := json.NewDecoder(bytes.NewReader(r.body)).Decode(&j); err != nil {
+			t.Fatalf("couldn't decode request: %v", err)
+		}
+		if j.Contents != "still here" {
+			t.Fatalf("wrong file posted: got contents %q", j.Contents)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("valid file was never posted — pipeline stalled after a vanished file")
+	}
+}

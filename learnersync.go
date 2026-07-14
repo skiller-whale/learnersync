@@ -35,6 +35,10 @@ const POLL_INTERVAL_MILLIS = 2500
 const MAX_RETRY_DELAY = 30000
 const MAX_TRIGGER_TIME = 2500
 
+// Retry backoff, as vars rather than consts so tests can shrink it.
+var retryBaseDelayMillis = 1000
+var retryJitterMillis = 1500
+
 func fatalIfSet(e error) {
 	if e != nil {
 		log.Fatal(e)
@@ -417,7 +421,7 @@ func (s *Sync) PostFileUpdates() {
 						return
 					}
 					v.retries += 1
-					v.time = v.time.Add(time.Duration(v.retries*(1000+(rand.Int()%1500))) * time.Millisecond)
+					v.time = v.time.Add(time.Duration(v.retries*(retryBaseDelayMillis+(rand.Int()%retryJitterMillis))) * time.Millisecond)
 					filesToPostTimes[nextFile] = v
 				}
 			}
