@@ -21,6 +21,7 @@ jobs:
       - name: Upload Build
         uses: actions/upload-artifact@v7
         with:
+          name: build
           path: build
 
   release:
@@ -30,6 +31,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         name: Download build
+        with:
+          name: build
+          path: artifact
       - name: Display fetched artifacts
         run: ls -R
       # Release tags that aren't v... are pre-release, named after their branch
