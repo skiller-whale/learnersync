@@ -23,4 +23,4 @@ WORKDIR /app/exercises
 RUN ln -s /root/.ash_history /app/.command_history
 
 # Clear the history on startup, and run the sync
-CMD > /root/.ash_history && SkillerWhaleSync
+CMD ["/bin/bash", "-c", "> /root/.ash_history && exec SkillerWhaleSync"]
