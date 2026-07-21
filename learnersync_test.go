@@ -1010,11 +1010,15 @@ func TestPostFileUpdatesSurvivesVanishedFile(t *testing.T) {
 
 	f, err := os.CreateTemp("", "survivor.*.md")
 	if err != nil {
-		panic(err)
+		t.Fatalf("couldn't create temp file: %v", err)
 	}
 	defer os.Remove(f.Name())
-	f.Write([]byte("still here"))
-	f.Close()
+	if _, err := f.Write([]byte("still here")); err != nil {
+		t.Fatalf("couldn't write temp file: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("couldn't close temp file: %v", err)
+	}
 	sync.fileUpdated <- f.Name()
 
 	select {

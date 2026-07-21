@@ -425,7 +425,11 @@ func (s *Sync) PostFileUpdates() {
 						continue
 					}
 					v.retries += 1
-					v.time = v.time.Add(time.Duration(v.retries*(retryBaseDelayMillis+(rand.Int()%retryJitterMillis))) * time.Millisecond)
+					jitter := 0
+					if retryJitterMillis > 0 {
+						jitter = rand.Intn(retryJitterMillis)
+					}
+					v.time = v.time.Add(time.Duration(v.retries*(retryBaseDelayMillis+jitter)) * time.Millisecond)
 					filesToPostTimes[nextFile] = v
 				}
 			}
