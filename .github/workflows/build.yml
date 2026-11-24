@@ -30,6 +30,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         name: Download build
+        with:
+          name: artifact
+          path: artifact
       - name: Display fetched artifacts
         run: ls -R
       # Release tags that aren't v... are pre-release, named after their branch
